@@ -13,6 +13,7 @@ Notes et explications du notebook `Spark_DIA3_Session_1.ipynb` : chargement de `
 7. [Suppression des lignes malformées (`x is not None`)](#7-suppression-des-lignes-malformées-x-is-not-none)
 8. [Filtrage par taux d'occupation (`< 0.10`)](#8-filtrage-par-taux-doccupation--010)
 9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
+10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -40,6 +41,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | `filter(None)` | [§7 Malformées](#7-suppression-des-lignes-malformées-x-is-not-none) |
 | `filter(taux)` | [§8 Taux d'occupation](#8-filtrage-par-taux-doccupation--010) |
 | affichage top 10 | [§9 Format tableau](#9-formatage-dun-en-tête-de-tableau-40--12) |
+| Section 0 (config Mac) | [§10 Java arm64 / psutil](#10-mac-apple-silicon--java-arm64-et-warning-psutil) |
 
 ---
 
@@ -975,3 +977,114 @@ A 5
 ## 6. Synthèse
 
 `print(f"{'Station':<40} {'Snapshots':>12}")` crée un **en-tête de tableau** : « Station » sur 40 caractères à gauche, « Snapshots » sur 12 caractères à droite — pour que les lignes de données en dessous s'alignent proprement.
+
+---
+
+<a id="10-mac-apple-silicon--java-arm64-et-warning-psutil"></a>
+
+# 10. Mac Apple Silicon — Java arm64 et warning `psutil`
+
+## Question
+
+Pourquoi Spark affiche-t-il en boucle ce message, même après `pip install psutil` ?
+
+```
+UserWarning: Please install psutil to have better support with spilling
+```
+
+Et pourquoi installer OpenJDK 17 via Homebrew ?
+
+```bash
+brew install openjdk@17
+export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+---
+
+## Réponse
+
+Ce n'est **pas** un problème d'installation de `psutil` dans le venv. Le module est bien présent côté Jupyter. Le warning vient d'une **incompatibilité d'architecture** entre Java et les workers PySpark sur Mac M1/M2/M3.
+
+---
+
+## 1. Ce qui se passe sous le capot
+
+PySpark lance deux types de processus Python :
+
+| Processus | Rôle |
+|---|---|
+| **Driver** | le notebook Jupyter — exécute vos cellules |
+| **Workers** | processus fils lancés par Spark pour traiter les partitions en parallèle |
+
+Lors d'un **shuffle** (`reduceByKey`, `join`, `sortBy`), Spark doit surveiller la mémoire utilisée par chaque worker pour décider si des données doivent être **déversées sur disque** (*spilling*). Pour cela, il s'appuie sur `psutil`, qui lit la consommation mémoire du processus.
+
+---
+
+## 2. Le conflit arm64 / x86_64
+
+Sur Mac Apple Silicon, macOS installe souvent par défaut un Java **x86_64** (Rosetta), par exemple le plugin Oracle 1.8. Or Jupyter et le venv Python tournent en **arm64** natif.
+
+| Composant | Java x86_64 (défaut macOS) | OpenJDK 17 arm64 |
+|---|---|---|
+| Driver Python (Jupyter) | arm64 | arm64 |
+| JVM Spark | **x86_64** (Rosetta) | **arm64** |
+| Workers PySpark | **x86_64** | **arm64** |
+| `psutil` (bibliothèque native) | arm64 | arm64 |
+
+Les workers PySpark **héritent de l'architecture de la JVM**. Quand Java tourne en x86_64, les workers tournent aussi en x86_64 — alors que `psutil` installé via pip dans le venv arm64 ne fournit qu'une extension native **arm64**.
+
+Résultat :
+
+- le **driver** importe `psutil` sans erreur ;
+- les **workers** échouent silencieusement à charger l'extension ;
+- Spark affiche le warning « Please install psutil » à chaque opération de shuffle.
+
+---
+
+## 3. La solution : OpenJDK 17 arm64
+
+Homebrew fournit un OpenJDK compilé nativement pour arm64 :
+
+```bash
+brew install openjdk@17
+export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+En pointant `JAVA_HOME` vers ce JDK **avant** de lancer Jupyter (ou via la Section 0 du notebook), Java, les workers PySpark et `psutil` tournent tous en arm64. Le warning disparaît et Spark gère correctement le spilling mémoire.
+
+> **Attention :** `java_home -v 17` ne trouve pas OpenJDK Homebrew tant qu'il n'est pas symlinké dans `/Library/Java/JavaVirtualMachines/`.
+
+Pour rendre le réglage permanent, ajouter la ligne `export JAVA_HOME=...` dans `~/.zshrc`.
+
+---
+
+## 4. Vérifier que tout est aligné
+
+```bash
+java -version          # doit mentionner OpenJDK 17 (arm64)
+echo $JAVA_HOME        # doit pointer vers le JDK Homebrew, pas le plugin Oracle
+python -c "import psutil; print('psutil OK')"
+```
+
+---
+
+## 5. Contournement dans le notebook (Section 0)
+
+Si vous ne pouvez pas changer de Java immédiatement, la **Section 0** de `Spark_DIA3_Session_1.ipynb` crée automatiquement un script `python-arm64` dans le venv :
+
+```python
+# extrait de la Section 0
+if platform.system() == "Darwin" and platform.machine() == "arm64":
+    os.environ["PYSPARK_PYTHON"] = str(_wrapper)       # force arm64 pour les workers
+    os.environ["PYSPARK_DRIVER_PYTHON"] = str(_python)
+```
+
+Ce wrapper exécute `arch -arm64 python` pour que les workers tournent en arm64 même si Java reste en x86_64. **Ça fonctionne**, mais installer OpenJDK 17 reste la solution propre — une seule architecture pour toute la chaîne Spark.
+
+---
+
+## 6. Synthèse
+
+Le warning `psutil` sur Mac Apple Silicon ne signifie pas que le paquet manque : il signale que les **workers Spark ne peuvent pas charger l'extension native arm64 de psutil** parce qu'ils tournent en x86_64 via Rosetta. Installer **OpenJDK 17 arm64** et définir `JAVA_HOME` aligne Java et Python sur la même architecture — c'est la correction définitive.

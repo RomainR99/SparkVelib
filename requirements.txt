@@ -4,3 +4,4 @@ pyspark==3.5.0
 jupyter 
 findspark
 tqdm
+psutil

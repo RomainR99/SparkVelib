@@ -1,4 +1,51 @@
-# Rapport — Chargement d'un CSV avec Spark (`textFile`)
+# Rapport — Spark Session 1 (API RDD)
+
+Notes et explications du notebook `Spark_DIA3_Session_1.ipynb` : chargement de `historique_stations.csv`, transformations paresseuses, parsing ETL, filtrage et agrégations RDD.
+
+## Sommaire
+
+1. [Chargement d'un CSV avec `textFile()`](#1-chargement-dun-csv-avec-textfile)
+2. [Partitions RDD vs `spark.sql.shuffle.partitions`](#2-partitions-rdd-vs-sparksqlshufflepartitions)
+3. [Filtrage d'un RDD avec `filter()` (en-tête)](#3-filtrage-dun-rdd-avec-filter-en-tête)
+4. [Affichage d'un RDD : `PythonRDD[26]`](#4-affichage-dun-rdd-pythonrdd26)
+5. [Déballage de liste (`horodatage, capacite, ... = champs`)](#5-déballage-de-liste-horodatage-capacite--champs)
+6. [Conversion booléenne (`operative.lower() == "true"`)](#6-conversion-booléenne-operativelower--true)
+7. [Suppression des lignes malformées (`x is not None`)](#7-suppression-des-lignes-malformées-x-is-not-none)
+8. [Filtrage par taux d'occupation (`< 0.10`)](#8-filtrage-par-taux-doccupation--010)
+9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
+
+## Parcours du pipeline (liens entre sections)
+
+```
+[1] textFile(historique_stations.csv)     →  RDD[str] brut
+         ↓
+[3] filter(ligne != entete)               →  data_rdd
+         ↓
+[5][6] map(parse_ligne)                   →  dict typé (ETL)
+         ↓
+[7] filter(x is not None)                →  clean_rdd
+         ↓
+[8] filter / map (taux d'occupation)      →  step3
+         ↓
+reduceByKey / sortBy / take               →  top 10 [9]
+```
+
+| Étape notebook | Section rapport |
+|---|---|
+| `sc.textFile()` | [§1 Chargement](#1-chargement-dun-csv-avec-textfile) |
+| `getNumPartitions()` / `repartition()` | [§2 Partitions](#2-partitions-rdd-vs-sparksqlshufflepartitions) |
+| `filter` en-tête | [§3 Filtrage en-tête](#3-filtrage-dun-rdd-avec-filter-en-tête) |
+| `print(rdd)` lazy | [§4 PythonRDD](#4-affichage-dun-rdd-pythonrdd26) |
+| `parse_ligne()` | [§5 Déballage](#5-déballage-de-liste-horodatage-capacite--champs) · [§6 Booléen](#6-conversion-booléenne-operativelower--true) |
+| `filter(None)` | [§7 Malformées](#7-suppression-des-lignes-malformées-x-is-not-none) |
+| `filter(taux)` | [§8 Taux d'occupation](#8-filtrage-par-taux-doccupation--010) |
+| affichage top 10 | [§9 Format tableau](#9-formatage-dun-en-tête-de-tableau-40--12) |
+
+---
+
+<a id="1-chargement-dun-csv-avec-textfile"></a>
+
+# 1. Chargement d'un CSV avec Spark (`textFile`)
 
 ## Question
 
@@ -90,7 +137,9 @@ C'est le principe central de Spark : **transformations paresseuses** (construire
 
 ---
 
-# Partitions RDD vs `spark.sql.shuffle.partitions`
+<a id="2-partitions-rdd-vs-sparksqlshufflepartitions"></a>
+
+# 2. Partitions RDD vs `spark.sql.shuffle.partitions`
 
 ## Question
 
@@ -155,7 +204,9 @@ Les confondre serait trompeur dans cette cellule. `spark.sql.shuffle.partitions`
 
 ---
 
-# Filtrage d'un RDD avec `filter()`
+<a id="3-filtrage-dun-rdd-avec-filter-en-tête"></a>
+
+# 3. Filtrage d'un RDD avec `filter()` (en-tête)
 
 ## Question
 
@@ -246,7 +297,9 @@ résultat remonté au notebook
 
 ---
 
-# Affichage d'un RDD : `PythonRDD[26] at RDD at PythonRDD.scala:53`
+<a id="4-affichage-dun-rdd-pythonrdd26"></a>
+
+# 4. Affichage d'un RDD : `PythonRDD[26]`
 
 ## Question
 
@@ -302,7 +355,9 @@ C'est seulement à ce moment que Spark lit le fichier, applique le filtre et ren
 
 ---
 
-# Déballage de liste : `horodatage, capacite, ... = champs`
+<a id="5-déballage-de-liste-horodatage-capacite--champs"></a>
+
+# 5. Déballage de liste : `horodatage, capacite, ... = champs`
 
 ## Question
 
@@ -380,7 +435,9 @@ C'est une étape classique de préparation des données (ETL).
 
 ---
 
-# Conversion booléenne : `operative.lower() == "true"`
+<a id="6-conversion-booléenne-operativelower--true"></a>
+
+# 6. Conversion booléenne : `operative.lower() == "true"`
 
 ## Question
 
@@ -518,7 +575,9 @@ Cela évite des erreurs fréquentes avec les CSV mal formatés.
 
 ---
 
-# Suppression des lignes malformées : `filter(lambda x: x is not None)`
+<a id="7-suppression-des-lignes-malformées-x-is-not-none"></a>
+
+# 7. Suppression des lignes malformées : `filter(lambda x: x is not None)`
 
 ## Question
 
@@ -702,7 +761,9 @@ DataFrame Spark
 
 ---
 
-# Filtrage par condition : `lambda r: r["taux_occupation"] < 0.10`
+<a id="8-filtrage-par-taux-doccupation--010"></a>
+
+# 8. Filtrage par taux d'occupation : `lambda r: r["taux_occupation"] < 0.10`
 
 ## Question
 
@@ -817,7 +878,9 @@ La logique du `lambda` reste identique — **seule la condition change**.
 
 ---
 
-# Formatage d'un en-tête de tableau : `{'Station':<40}` et `{'Snapshots':>12}`
+<a id="9-formatage-dun-en-tête-de-tableau-40--12"></a>
+
+# 9. Formatage d'un en-tête de tableau : `{'Station':<40}` et `{'Snapshots':>12}`
 
 ## Question
 

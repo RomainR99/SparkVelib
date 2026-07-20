@@ -814,3 +814,101 @@ La logique du `lambda` reste identique — **seule la condition change**.
 ## 7. Synthèse
 
 `lambda r: r["taux_occupation"] < 0.10` dit à Spark : **« pour chaque snapshot, garde-le seulement si moins de 10 % des bornettes sont occupées »**. C'est une étape de **filtrage métier** dans le pipeline ETL, après le calcul du taux d'occupation.
+
+---
+
+# Formatage d'un en-tête de tableau : `{'Station':<40}` et `{'Snapshots':>12}`
+
+## Question
+
+Que signifie cette ligne ?
+
+```python
+print(f"{'Station':<40} {'Snapshots':>12}")
+```
+
+---
+
+## Réponse
+
+Cette ligne affiche un **en-tête de tableau aligné**, avant les lignes de données du top 10 des stations :
+
+```
+Station                                  Snapshots
+```
+
+---
+
+## 1. C'est une f-string
+
+`f"..."` permet de formater des valeurs entre `{` et `}`.
+
+Ici ce ne sont pas des variables, mais du **texte fixe** avec des **règles d'alignement**.
+
+---
+
+## 2. `{'Station':<40}` — aligné à gauche
+
+| Partie | Signification |
+|---|---|
+| `'Station'` | le texte à afficher |
+| `:` | début du format |
+| `<` | alignement **à gauche** |
+| `40` | largeur **fixe de 40 caractères** |
+
+`Station` est collé à gauche, puis des espaces remplissent jusqu'à 40 caractères.
+
+---
+
+## 3. `{'Snapshots':>12}` — aligné à droite
+
+| Partie | Signification |
+|---|---|
+| `'Snapshots'` | le texte |
+| `>` | alignement **à droite** |
+| `12` | largeur **fixe de 12 caractères** |
+
+`Snapshots` est poussé à droite dans une zone de 12 caractères.
+
+---
+
+## 4. Pourquoi faire ça ?
+
+Les lignes suivantes utilisent le **même format** :
+
+```python
+print(f"{nom_station:<40} {count:>12,}")
+```
+
+Exemple de rendu :
+
+```
+Benjamin Godard - Victor Hugo                  2,022
+André Mazet - Saint-André des Arts             1,987
+```
+
+- **Noms à gauche** (40 car.) → colonne lisible, noms longs alignés ;
+- **Nombres à droite** (12 car.) → chiffres empilés, faciles à comparer.
+
+Sans alignement, l'affichage devient illisible :
+
+```
+Benjamin Godard - Victor Hugo 2022
+A 5
+```
+
+---
+
+## 5. Les symboles d'alignement
+
+| Symbole | Effet |
+|---|---|
+| `<` | aligné à **gauche** |
+| `>` | aligné à **droite** |
+| `^` | **centré** |
+
+---
+
+## 6. Synthèse
+
+`print(f"{'Station':<40} {'Snapshots':>12}")` crée un **en-tête de tableau** : « Station » sur 40 caractères à gauche, « Snapshots » sur 12 caractères à droite — pour que les lignes de données en dessous s'alignent proprement.

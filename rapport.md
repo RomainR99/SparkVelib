@@ -1,6 +1,8 @@
 # Rapport — Spark Session 1 (API RDD)
 
-Notes et explications du notebook `Spark_DIA3_Session_1.ipynb` : chargement de `historique_stations.csv`, transformations paresseuses, parsing ETL, filtrage et agrégations RDD.
+Notes et explications des notebooks Spark du projet ClimaCity Paris :
+- `Spark_DIA3_Session_1.ipynb` — API RDD
+- `Spark_DIA3_Session_2.ipynb` — API DataFrame (à partir de la §11)
 
 ## Sommaire
 
@@ -14,6 +16,7 @@ Notes et explications du notebook `Spark_DIA3_Session_1.ipynb` : chargement de `
 8. [Filtrage par taux d'occupation (`< 0.10`)](#8-filtrage-par-taux-doccupation--010)
 9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
 10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
+11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1088,3 +1091,127 @@ Ce wrapper exécute `arch -arm64 python` pour que les workers tournent en arm64 
 ## 6. Synthèse
 
 Le warning `psutil` sur Mac Apple Silicon ne signifie pas que le paquet manque : il signale que les **workers Spark ne peuvent pas charger l'extension native arm64 de psutil** parce qu'ils tournent en x86_64 via Rosetta. Installer **OpenJDK 17 arm64** et définir `JAVA_HOME` aligne Java et Python sur la même architecture — c'est la correction définitive.
+
+---
+
+<a id="11-plan-dexécution--dfexplainmodeformatted"></a>
+
+# 11. Plan d'exécution : `df_joint.explain(mode="formatted")`
+
+> Notebook : `Spark_DIA3_Session_2.ipynb` — §2.6 Jointure Vélib' × Météo
+
+## Question
+
+Que fait cette ligne ?
+
+```python
+df_joint.explain(mode="formatted")
+```
+
+Et comment lire le résultat affiché ?
+
+---
+
+## Réponse
+
+`explain()` affiche le **plan d'exécution physique** que Spark utilisera pour produire le DataFrame — ici `df_joint`, résultat de la jointure Vélib' × météo. C'est une opération **lazy** : aucun recalcul n'est déclenché, Spark décrit seulement *comment* il compte exécuter la requête.
+
+---
+
+## 1. `explain()` vs `show()`
+
+| Méthode | Rôle | Déclenche le calcul ? |
+|---|---|---|
+| `show()` | affiche des **lignes de données** | oui (action) |
+| `explain()` | affiche la **stratégie d'exécution** | non (diagnostic) |
+
+L'équivalent dans la Spark UI serait de consulter l'onglet **SQL** ou le **DAG** d'un job — mais directement dans le notebook.
+
+---
+
+## 2. Le paramètre `mode="formatted"`
+
+Spark propose plusieurs modes d'affichage :
+
+| Mode | Rendu |
+|---|---|
+| `"simple"` (défaut) | texte compact, une ligne par opérateur |
+| `"formatted"` | arbre indenté, hiérarchie visuelle claire |
+| `"codegen"` | détail du code Java généré (debug avancé) |
+| `"cost"` | estimation de coût (Spark 3.x+) |
+
+En cours, **`mode="formatted"`** est le plus lisible : on voit quelle opération est **enfant** de quelle autre.
+
+---
+
+## 3. Comment lire l'arbre
+
+Exemple simplifié de ce que vous pouvez voir :
+
+```
+== Physical Plan ==
+* Project (3)
++- * BroadcastHashJoin Inner (2)
+   :- FileScan parquet ...          ← grosse table Vélib'
+   +- BroadcastExchange (1)         ← diffusion de la petite table
+      +- FileScan csv ...            ← table météo
+```
+
+**Sens de lecture :** de bas en haut (feuilles → racine).
+
+| Opérateur | Signification |
+|---|---|
+| `Scan parquet` / `Scan csv` | lecture des fichiers sources |
+| `BroadcastExchange` | Spark envoie une **copie complète** de la petite table à chaque executor |
+| `BroadcastHashJoin` | jointure **sans shuffle** de la grosse table |
+| `Project` | sélection / projection des colonnes finales |
+
+---
+
+## 4. Ce qu'on cherche dans la §2.6
+
+Dans le notebook, la jointure est écrite ainsi :
+
+```python
+df_joint = (
+    df_velib_join
+    .join(broadcast(df_meteo_join), on="heure_tronquee", how="left")
+    .join(broadcast(df_stations), on="nom_station", how="left")
+)
+```
+
+On s'attend à voir dans le plan :
+
+```
+BroadcastHashJoin
+BroadcastExchange
+```
+
+**Bon signe** — le `broadcast()` a été pris en compte par l'optimiseur Catalyst : la table météo (~17 000 lignes) est répliquée localement sur chaque nœud, évitant un shuffle de la table Vélib' (~690 000 lignes).
+
+**Signe d'alerte** (sur une jointure grosse × grosse) :
+
+```
+SortMergeJoin
+Exchange (shuffle)
+```
+
+Un **shuffle** = redistribution des données entre partitions → coûteux en réseau et en mémoire.
+
+---
+
+## 5. Pourquoi c'est important
+
+Spark ne exécute pas les transformations ligne par ligne comme Pandas. Il construit d'abord un **DAG** (graphe acyclique), puis l'optimiseur **Catalyst** choisit la stratégie la moins coûteuse :
+
+1. **Logical plan** — ce qu'on a écrit (`join`, `filter`, `groupBy`…)
+2. **Optimized logical plan** — simplifications (predicate pushdown, etc.)
+3. **Physical plan** — ce que `explain()` affiche (`BroadcastHashJoin`, `Scan`, etc.)
+
+Savoir lire `explain()` permet de vérifier qu'une optimisation explicite (`broadcast()`) est bien appliquée — compétence essentielle pour le debug performance Spark.
+
+---
+
+## 6. Synthèse
+
+`df_joint.explain(mode="formatted")` = « Montre-moi l'arbre des opérations physiques que Spark utilisera pour calculer `df_joint`. » Dans la jointure Vélib' × météo, l'objectif est de **confirmer visuellement** la présence de `BroadcastHashJoin` plutôt qu'un shuffle coûteux.

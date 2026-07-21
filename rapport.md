@@ -20,6 +20,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
 12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
 13. [Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
+14. [Que sont les JARs Delta ?](#14-que-sont-les-jars-delta)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1678,6 +1679,21 @@ spark = configure_spark_with_delta_pip(
 
 `configure_spark_with_delta_pip()` ajoute automatiquement les extensions Spark et les JARs Maven nécessaires (`DeltaSparkSessionExtension`, `DeltaCatalog`).
 
+> **Note pratique — interpréteur Python de l'éditeur**
+>
+> Pour éviter que `delta` soit souligné dans Cursor/VS Code alors que le notebook fonctionne, le projet contient aussi un fichier `/.vscode/settings.json` :
+>
+> ```json
+> {
+>   "python.defaultInterpreterPath": "/Users/romain/Desktop/SparkVelib/.venv-spark/bin/python",
+>   "python.analysis.extraPaths": [
+>     "/Users/romain/Desktop/SparkVelib/.venv-spark/lib/python3.12/site-packages"
+>   ]
+> }
+> ```
+>
+> Cette configuration ne change pas le code Spark lui-même : elle indique simplement à l'éditeur quel **interpréteur Python** et quel dossier `site-packages` utiliser pour l'analyse statique. Sans cela, l'import `from delta import configure_spark_with_delta_pip` peut être exécuté correctement par Jupyter tout en restant souligné visuellement dans l'éditeur.
+
 ---
 
 ## Tableau comparatif
@@ -1715,3 +1731,161 @@ Workflow courant en production :
 3. **Stocker en Delta Lake** via `delta-spark` — performances proches du Parquet, avec en plus les garanties d'une base de données (transactions, mises à jour, historique, time travel)
 
 Dans ce projet, le Parquet (`disponibilite_consolidee.parquet`) sert de **table analytique** produite au Jour 1 ; Delta Lake prend le relais au **Jour 2** pour les écritures incrémentales, le `MERGE INTO` et le streaming.
+
+---
+
+<a id="14-que-sont-les-jars-delta"></a>
+
+# 14. Que sont les JARs Delta ?
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — démarrage de la SparkSession Delta
+
+## Question
+
+Quand Spark affiche :
+
+```text
+io.delta#delta-spark_2.12;3.2.1
+io.delta#delta-storage;3.2.1
+```
+
+ou télécharge des dépendances au démarrage, que sont exactement les **JARs Delta** ?
+
+---
+
+## Réponse
+
+Les **JARs Delta** sont les **bibliothèques Java/Scala** dont Spark a besoin pour comprendre et exécuter **Delta Lake** dans la JVM.
+
+Même si l'on code en Python avec :
+
+```python
+from delta import configure_spark_with_delta_pip
+```
+
+le moteur Spark exécute l'essentiel de son travail côté **JVM** (Java / Scala), pas directement dans l'interpréteur Python.
+
+---
+
+## 1. `delta-spark` Python vs JARs Delta
+
+Il faut distinguer deux couches :
+
+| Élément | Rôle |
+|---|---|
+| package Python `delta-spark` | interface Python + configuration Spark |
+| **JARs Delta** | moteur Delta Lake exécuté par Spark dans la JVM |
+
+Le package Python ne suffit pas à lui seul : il doit aussi faire charger à Spark les bibliothèques Java correspondantes.
+
+---
+
+## 2. Qu'est-ce qu'un JAR ?
+
+Un **JAR** (*Java ARchive*) est l'équivalent, pour l'écosystème Java, d'un paquet compilé.
+
+On peut comparer :
+
+| Écosystème | Format de bibliothèque |
+|---|---|
+| Python | `.whl` / paquet `pip` |
+| Java / Scala | `.jar` |
+
+Spark charge ces fichiers dans sa **JVM** au démarrage.
+
+---
+
+## 3. Pourquoi Spark en a besoin
+
+Quand on demande :
+
+```python
+df.write.format("delta").save("data/")
+```
+
+ou :
+
+```python
+spark.read.format("delta").load("data/")
+```
+
+Spark doit savoir :
+
+- lire `_delta_log` ;
+- interpréter les versions de table ;
+- appliquer `MERGE`, `UPDATE`, `DELETE` ;
+- gérer le time travel ;
+- maintenir la cohérence transactionnelle.
+
+Toutes ces fonctionnalités sont implémentées dans les **classes Java/Scala** fournies par les JARs Delta.
+
+---
+
+## 4. Ce que signifie le log affiché
+
+Quand Spark affiche :
+
+```text
+io.delta#delta-spark_2.12;3.2.1
+io.delta#delta-storage;3.2.1
+```
+
+cela signifie qu'il a résolu les bibliothèques nécessaires :
+
+| Composant | Rôle |
+|---|---|
+| `delta-spark_2.12` | implémentation principale de Delta Lake pour Spark |
+| `delta-storage` | couche de stockage / journalisation Delta |
+| `antlr4-runtime` | dépendance utilitaire utilisée par Delta |
+
+Le suffixe **`_2.12`** correspond à la version de **Scala** utilisée par cette build Spark.
+
+---
+
+## 5. Pourquoi l'erreur arrivait avant
+
+Le message :
+
+```text
+ClassNotFoundException: io.delta.sql.DeltaSparkSessionExtension
+```
+
+signifie exactement :
+
+- Spark cherche la classe Java `DeltaSparkSessionExtension` ;
+- mais le JAR qui contient cette classe n'est **pas chargé** dans la JVM.
+
+Autrement dit, Python connaissait peut-être `delta-spark`, mais Spark lui-même ne trouvait pas encore le moteur Delta côté Java.
+
+---
+
+## 6. Le rôle de `configure_spark_with_delta_pip()`
+
+Dans ce projet, on utilise :
+
+```python
+from delta import configure_spark_with_delta_pip
+
+spark = configure_spark_with_delta_pip(
+    SparkSession.builder.appName(APP_NAME).master("local[*]")
+).getOrCreate()
+```
+
+Cette fonction :
+
+1. ajoute les bons paramètres Spark ;
+2. indique quelles dépendances Maven/JAR doivent être chargées ;
+3. permet à Spark de récupérer automatiquement les JARs Delta au premier lancement.
+
+Ensuite, Spark peut créer une session pleinement compatible Delta Lake.
+
+---
+
+## 7. Résumé
+
+Les **JARs Delta** sont les bibliothèques Java/Scala qui fournissent à Spark le **vrai moteur Delta Lake**.
+
+- `delta-spark` côté Python = interface et configuration ;
+- **JARs Delta** côté JVM = exécution réelle des commandes Delta ;
+- sans ces JARs, Spark ne sait pas utiliser `format("delta")` ni `DeltaSparkSessionExtension` ;
+- avec eux, Spark peut gérer lecture/écriture Delta, `MERGE`, `DELETE`, historique et time travel.

@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "/Users/romain/Desktop/SparkVelib/.venv-spark/bin/python",
+  "python.analysis.extraPaths": [
+    "/Users/romain/Desktop/SparkVelib/.venv-spark/lib/python3.12/site-packages"
+  ]
+}

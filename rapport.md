@@ -1,11 +1,18 @@
-# Rapport — Spark Session 1 (API RDD)
+# Rapport — Spark ClimaCity Paris (Sessions 1–3)
 
-Notes et explications des notebooks Spark du projet ClimaCity Paris :
-- `Spark_DIA3_Session_1.ipynb` — API RDD
-- `Spark_DIA3_Session_2.ipynb` — API DataFrame (§11–§12)
-- `Spark_DIA3_Session_3.ipynb` — Spark SQL, Delta Lake (à partir de la §13)
+Notes et explications des notebooks Spark du projet ClimaCity Paris.
+
+| Notebook | Thème | Sections |
+|---|---|---|
+| [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
+| [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
+| [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
+
+**Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
 ## Sommaire
+
+### Session 1 — API RDD
 
 1. [Chargement d'un CSV avec `textFile()`](#1-chargement-dun-csv-avec-textfile)
 2. [Partitions RDD vs `spark.sql.shuffle.partitions`](#2-partitions-rdd-vs-sparksqlshufflepartitions)
@@ -17,8 +24,14 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 8. [Filtrage par taux d'occupation (`< 0.10`)](#8-filtrage-par-taux-doccupation--010)
 9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
 10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
+
+### Session 2 — DataFrame & Parquet
+
 11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
 12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
+
+### Session 3 — Spark SQL (bases)
+
 13. [Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
 14. [Que sont les JARs Delta ?](#14-que-sont-les-jars-delta)
 15. [Résumé d'une table : `df.count()` et `len(df.columns)`](#15-résumé-dune-table--dfcount-et-lendfcolumns)
@@ -32,11 +45,24 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 23. [`nb_snapshots` — nombre d'observations, pas de bornes vides](#23-nb_snapshots--nombre-dobservations-pas-de-bornes-vides)
 24. [Alias `d` et `m` — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
 25. [Inspecter le format de `horodatage` avant `TO_TIMESTAMP`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp)
-26. [`Window.currentRow` et moyenne mobile sur 3 snapshots](#26-windowcurrentrow-et-moyenne-mobile-sur-3-snapshots)
-27. [Simulation batch MERGE — décaler un `horodatage` string](#27-simulation-batch-merge--décaler-un-horodatage-string)
-28. [`F.col("mois") == 1` — filtrer sur janvier](#28-fcolmois--1--filtrer-sur-janvier)
+
+### Session 3 — Fenêtres analytiques (Spark SQL)
+
+26. [Spark SQL `OVER` / `WINDOW w` — LAG, LEAD, moyenne mobile](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile)
+27. [`ROW_NUMBER()` — classement par heure](#27-row_number--classement-par-heure)
+28. [Moyenne cumulée et delta entre snapshots (`ROWS UNBOUNDED PRECEDING`)](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding)
+29. [`Window.currentRow` (API PySpark) — équivalent de `ROWS BETWEEN`](#29-windowcurrentrow-api-pyspark--équivalent-de-rows-between)
+
+### Session 3 — Delta Lake (écriture, MERGE, time travel)
+
+30. [Simulation batch MERGE — décaler un `horodatage` string](#30-simulation-batch-merge--décaler-un-horodatage-string)
+31. [`F.col("mois") == 1` — filtrer sur janvier](#31-fcolmois--1--filtrer-sur-janvier)
+32. [`MERGE INTO` en Spark SQL — chemin absolu Delta](#32-merge-into-en-spark-sql--chemin-absolu-delta)
+33. [`DESCRIBE HISTORY` et time travel (`versionAsOf`)](#33-describe-history-et-time-travel-versionasof)
 
 ## Parcours du pipeline (liens entre sections)
+
+### Session 1 — RDD
 
 ```
 [1] textFile(historique_stations.csv)     →  RDD[str] brut
@@ -63,6 +89,24 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | `filter(taux)` | [§8 Taux d'occupation](#8-filtrage-par-taux-doccupation--010) |
 | affichage top 10 | [§9 Format tableau](#9-formatage-dun-en-tête-de-tableau-40--12) |
 | Section 0 (config Mac) | [§10 Java arm64 / psutil](#10-mac-apple-silicon--java-arm64-et-warning-psutil) |
+
+### Session 2 — DataFrame & Parquet
+
+| Étape notebook | Section rapport |
+|---|---|
+| jointure Vélib' × météo + `explain()` | [§11 Plan d'exécution](#11-plan-dexécution--dfexplainmodeformatted) |
+| lecture / écriture Parquet partitionné | [§12 Parquet vs CSV/JSON](#12-pourquoi-parquet-plutôt-que-csv-ou-json) |
+
+### Session 3 — Spark SQL, fenêtres & Delta
+
+| Étape notebook | Section rapport |
+|---|---|
+| config Delta, vues SQL | [§13–§18](#13-delta-lake-et-le-package-delta-spark) |
+| jointures Velib × météo | [§19–§25](#19-alias-sql--que-signifie-dstation_id-) |
+| `LAG` / `LEAD` / moyenne mobile | [§26 Fenêtres SQL](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile) · [MEM-02](MEM-02SPARK_Window-Functions.md) |
+| `ROW_NUMBER`, cumul, delta | [§27](#27-row_number--classement-par-heure) · [§28](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding) |
+| batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) |
+| time travel | [§33](#33-describe-history-et-time-travel-versionasof) |
 
 ---
 
@@ -3233,11 +3277,184 @@ En une phrase : **on inspecte d'abord `horodatage` avec `show(truncate=False)`, 
 
 ---
 
-<a id="26-windowcurrentrow-et-moyenne-mobile-sur-3-snapshots"></a>
+<a id="26-spark-sql-over--window-w--lag-lead-moyenne-mobile"></a>
 
-# 26. `Window.currentRow` et moyenne mobile sur 3 snapshots
+# 26. Spark SQL `OVER` / `WINDOW w` — LAG, LEAD, moyenne mobile
 
 > Notebook : `Spark_DIA3_Session_3.ipynb` — §1.3 Fonctions de fenêtrage (`df_avec_lag`)
+>
+> Voir aussi : [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md), [§29 — équivalent PySpark](#29-windowcurrentrow-api-pyspark--équivalent-de-rows-between)
+
+## Question
+
+Comment calculer en Spark SQL le taux du snapshot précédent/suivant et une moyenne mobile sur 3 observations par station ?
+
+---
+
+## Réponse
+
+On définit une **fenêtre analytique** avec `WINDOW w AS (...)` puis on applique les fonctions avec `OVER w` :
+
+```sql
+SELECT
+    station_id,
+    nom_station,
+    horodatage,
+    taux_occupation,
+    LAG(taux_occupation, 1) OVER w AS taux_precedent,
+    LEAD(taux_occupation, 1) OVER w AS taux_suivant,
+    ROUND(
+        AVG(taux_occupation) OVER (
+            PARTITION BY station_id
+            ORDER BY horodatage
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ),
+        4
+    ) AS moy_mobile_3
+FROM disponibilite
+WINDOW w AS (PARTITION BY station_id ORDER BY horodatage)
+```
+
+| Clause | Rôle |
+|---|---|
+| `PARTITION BY station_id` | une série temporelle **par station** |
+| `ORDER BY horodatage` | ordre chronologique des snapshots |
+| `LAG(..., 1)` | valeur du snapshot **précédent** |
+| `LEAD(..., 1)` | valeur du snapshot **suivant** |
+| `ROWS BETWEEN 2 PRECEDING AND CURRENT ROW` | fenêtre glissante de **3 lignes** |
+
+---
+
+## Synthèse
+
+| Fonction | Usage |
+|---|---|
+| `LAG` / `LEAD` | navigation ligne par ligne |
+| `AVG(...) OVER (... ROWS BETWEEN ...)` | agrégat sur un nombre fixe de lignes |
+| `WINDOW w AS (...)` | factorise la définition de fenêtre réutilisée par plusieurs colonnes |
+
+En une phrase : **`OVER` indique *sur quelles lignes* calculer la fonction ; `ROWS BETWEEN` précise *combien* de lignes inclure dans une moyenne mobile.**
+
+---
+
+<a id="27-row_number--classement-par-heure"></a>
+
+# 27. `ROW_NUMBER()` — classement par heure
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — classement horaire (`df_rank`)
+
+## Question
+
+Comment classer les stations par taux d'occupation moyen **à chaque heure de la journée** ?
+
+---
+
+## Réponse
+
+1. Agréger le taux moyen par `(station_id, heure)` dans une CTE.
+2. Numéroter les stations **dans chaque heure** avec `ROW_NUMBER()`.
+
+```sql
+WITH taux_horaire AS (
+    SELECT
+        station_id,
+        nom_station,
+        heure,
+        ROUND(AVG(taux_occupation), 4) AS taux_moyen
+    FROM disponibilite
+    GROUP BY station_id, nom_station, heure
+)
+SELECT
+    station_id,
+    nom_station,
+    heure,
+    taux_moyen,
+    ROW_NUMBER() OVER w AS rang
+FROM taux_horaire
+WINDOW w AS (PARTITION BY heure ORDER BY taux_moyen DESC)
+ORDER BY heure, rang
+```
+
+| Élément | Signification |
+|---|---|
+| `PARTITION BY heure` | un classement **indépendant** par heure (0h, 1h, …) |
+| `ORDER BY taux_moyen DESC` | la station la plus occupée obtient `rang = 1` |
+| `ROW_NUMBER()` | numérotation **sans ex æquo** (contrairement à `RANK`) |
+
+---
+
+## Synthèse
+
+`ROW_NUMBER() OVER (PARTITION BY heure ORDER BY taux_moyen DESC)` répond à : **« quelle station est la plus occupée à 8h, à 9h, etc. ? »**
+
+---
+
+<a id="28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding"></a>
+
+# 28. Moyenne cumulée et delta entre snapshots (`ROWS UNBOUNDED PRECEDING`)
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — variation et cumul (`df_delta`)
+
+## Question
+
+Comment calculer la **variation instantanée** du taux d'occupation et sa **moyenne cumulée** depuis le début de l'historique d'une station ?
+
+---
+
+## Réponse
+
+```sql
+SELECT
+    station_id,
+    nom_station,
+    horodatage,
+    taux_occupation,
+    LAG(taux_occupation, 1) OVER w AS taux_precedent,
+    ROUND(
+        taux_occupation - LAG(taux_occupation, 1) OVER w,
+        4
+    ) AS delta_instantane,
+    ROUND(
+        AVG(taux_occupation) OVER (
+            PARTITION BY station_id
+            ORDER BY horodatage
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ),
+        4
+    ) AS taux_moyen_cumul
+FROM disponibilite
+WHERE station_id = 66505513
+WINDOW w AS (PARTITION BY station_id ORDER BY horodatage)
+ORDER BY horodatage
+```
+
+| Colonne | Calcul |
+|---|---|
+| `delta_instantane` | différence avec le snapshot précédent |
+| `taux_moyen_cumul` | moyenne depuis le **premier** snapshot de la station jusqu'à la ligne courante |
+
+`ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` = toutes les lignes déjà vues dans la partition, y compris la ligne actuelle.
+
+> **Note :** la station `1042` est absente des données ; le notebook utilise `66505513` (François 1er - Lincoln).
+
+---
+
+## Synthèse
+
+| Fenêtre | Effet |
+|---|---|
+| `2 PRECEDING AND CURRENT ROW` | moyenne mobile sur 3 snapshots ([§26](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile)) |
+| `UNBOUNDED PRECEDING AND CURRENT ROW` | moyenne **cumulée** depuis le début |
+
+---
+
+<a id="29-windowcurrentrow-api-pyspark--équivalent-de-rows-between"></a>
+
+# 29. `Window.currentRow` (API PySpark) — équivalent de `ROWS BETWEEN`
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — §1.3 (version historique DataFrame API)
+>
+> Le notebook utilise désormais **Spark SQL** ([§26](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile)). Cette section documente l'équivalent PySpark.
 
 ## Question
 
@@ -3252,128 +3469,38 @@ fenetre_moy_mobile_3 = (
 )
 ```
 
-Et en quoi cela diffère-t-il de `fenetre_station` utilisée pour `LAG` / `LEAD` ?
-
 ---
 
 ## Réponse
 
-`Window.currentRow` désigne **la ligne en cours de traitement** dans une fenêtre analytique Spark — l'équivalent de « la ligne sur laquelle on calcule la valeur maintenant ».
+`Window.currentRow` désigne **la ligne en cours de traitement**. `rowsBetween(-2, Window.currentRow)` couvre **3 lignes** : les 2 précédentes + la courante.
 
-Dans `rowsBetween(-2, Window.currentRow)`, Spark définit une **fenêtre glissante en nombre de lignes** (pas en temps) :
+Équivalence SQL :
 
-| Paramètre | Signification |
-|---|---|
-| `-2` | 2 lignes **avant** la ligne courante |
-| `Window.currentRow` | la ligne **courante** |
-
-La fenêtre couvre donc **3 lignes** : les 2 précédentes + la ligne actuelle.
-
----
-
-## 1. Code du notebook
-
-```python
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-
-fenetre_station = (
-    Window
-    .partitionBy("station_id")
-    .orderBy("horodatage")
-)
-
-fenetre_moy_mobile_3 = (
-    Window
-    .partitionBy("station_id")
-    .orderBy("horodatage")
-    .rowsBetween(-2, Window.currentRow)  # courant + 2 précédents = 3 snapshots
-)
-
-df_avec_lag = (
-    df
-    .select("station_id", "nom_station", "horodatage", "taux_occupation")
-    .withColumn("taux_precedent", F.lag("taux_occupation", 1).over(fenetre_station))
-    .withColumn("taux_suivant", F.lead("taux_occupation", 1).over(fenetre_station))
-    .withColumn("moy_mobile_3", F.round(F.avg("taux_occupation").over(fenetre_moy_mobile_3), 4))
-)
+```sql
+ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
 ```
 
----
-
-## 2. Exemple pas à pas
-
-Pour une même station, triée par `horodatage` :
-
-| Ligne | `taux_occupation` | Fenêtre (-2 → current) | `moy_mobile_3` |
-|---|---|---|---|
-| 1 | 0.10 | [0.10] | 0.10 |
-| 2 | 0.08 | [0.10, 0.08] | 0.09 |
-| 3 | 0.06 | [0.10, 0.08, 0.06] | 0.08 |
-| 4 | 0.12 | [0.08, 0.06, 0.12] | 0.087 |
-
-À la ligne 4, Spark « oublie » la ligne 1 : la fenêtre ne garde que **3 snapshots**.
-
----
-
-## 3. `Window.currentRow` vs borne numérique
-
-```python
-.rowsBetween(-2, Window.currentRow)                          # 2 lignes avant → ligne courante
-.rowsBetween(-2, 0)                                          # équivalent (0 = ligne courante)
-.rowsBetween(Window.unboundedPreceding, Window.currentRow)   # du début → ligne courante (cumul)
-```
-
-| Constante | Rôle |
+| API PySpark | Spark SQL |
 |---|---|
-| `Window.currentRow` | borne dynamique « ici et maintenant » |
-| `Window.unboundedPreceding` | depuis le début de la partition |
-| `Window.unboundedFollowing` | jusqu'à la fin de la partition |
+| `rowsBetween(-2, Window.currentRow)` | `ROWS BETWEEN 2 PRECEDING AND CURRENT ROW` |
+| `rowsBetween(Window.unboundedPreceding, Window.currentRow)` | `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` |
 
 ---
 
-## 4. Pourquoi deux fenêtres ?
+## Synthèse
 
-| Fenêtre | Usage | Suffisant pour… |
-|---|---|---|
-| `fenetre_station` (`partitionBy` + `orderBy`) | `LAG`, `LEAD` | 1 ligne avant / 1 ligne après |
-| `fenetre_moy_mobile_3` (+ `rowsBetween`) | `AVG` sur 3 lignes | moyenne mobile |
-
-`partitionBy("station_id").orderBy("horodatage")` seul ne dit pas **combien** de lignes inclure dans une agrégat — d'où `rowsBetween(-2, Window.currentRow)` pour une moyenne sur **3 snapshots**.
+`Window.currentRow` fixe la **borne droite** de la fenêtre sur la ligne actuelle — concept identique à `CURRENT ROW` en SQL.
 
 ---
 
-## 5. Rappel : `LAG` et `LEAD`
+<a id="30-simulation-batch-merge--décaler-un-horodatage-string"></a>
 
-| Fonction | Signification |
-|---|---|
-| `F.lag("taux_occupation", 1)` | valeur du snapshot **précédent** (NULL sur la 1ʳᵉ ligne de la station) |
-| `F.lead("taux_occupation", 1)` | valeur du snapshot **suivant** (NULL sur la dernière ligne) |
-
-Ces fonctions de **navigation** n'ont pas besoin de `rowsBetween` : le décalage est donné par le 2ᵉ argument (`1` = une ligne).
-
----
-
-## 6. Synthèse
-
-| Terme | Signification |
-|---|---|
-| `Window.currentRow` | la ligne en cours de calcul |
-| `rowsBetween(-2, Window.currentRow)` | fenêtre de 3 lignes (2 avant + courante) |
-| `moy_mobile_3` | moyenne de `taux_occupation` sur ces 3 snapshots |
-| `partitionBy("station_id")` | chaque station a sa propre série temporelle |
-
-En une phrase : **`Window.currentRow` fixe la borne droite de la fenêtre sur la ligne actuelle**, ce qui permet de calculer une moyenne glissante sur les 3 derniers snapshots de chaque station.
-
----
-
-<a id="27-simulation-batch-merge--décaler-un-horodatage-string"></a>
-
-# 27. Simulation batch MERGE — décaler un `horodatage` string
+# 30. Simulation batch MERGE — décaler un `horodatage` string
 
 > Notebook : `Spark_DIA3_Session_3.ipynb` — §1.4 Delta Lake, simulation `df_batch` avant `MERGE INTO`
 >
-> Voir aussi : [§25 — Inspecter le format de `horodatage`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp), [§13 — Delta Lake](#13-delta-lake-et-le-package-delta-spark)
+> Voir aussi : [§25 — Inspecter le format de `horodatage`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp), [§32 — MERGE INTO SQL](#32-merge-into-en-spark-sql--chemin-absolu-delta)
 
 ## Question
 
@@ -3451,78 +3578,32 @@ df_batch = df_corrections.unionByName(df_nouveaux).drop("source")
 "2022-01-15T10:30Z"                         ← string (format Velib')
 ```
 
-| Étape | Fonction | Rôle |
-|---|---|---|
-| 1 | `to_timestamp` | string → datetime |
-| 2 | `+ INTERVAL 2 YEARS` | décalage temporel |
-| 3 | `date_format` | datetime → string au format d'origine |
-
 ---
 
 ## 3. Pourquoi `.offset(500).limit(50)` ?
 
-Les **500 corrections** et les **50 nouvelles lignes** partent toutes deux de `mois == 1`.
-
-Sans `offset(500)`, les 50 « nouvelles » lignes seraient un **sous-ensemble** des 500 corrections : mêmes `(station_id, horodatage)` dans le batch → risque de doublons avant le `MERGE`.
+Sans `offset(500)`, les 50 « nouvelles » lignes seraient un **sous-ensemble** des 500 corrections : mêmes `(station_id, horodatage)` → doublons dans le batch.
 
 | Sous-ensemble | Rôle dans le MERGE |
 |---|---|
-| 500 premières lignes de janvier | `whenMatchedUpdateAll()` — taux corrigé (× 0.98) |
-| 50 lignes suivantes, horodatage +2 ans | `whenNotMatchedInsertAll()` — insertions |
+| 500 premières lignes de janvier | **UPDATE** — taux corrigé (× 0.98) |
+| 50 lignes suivantes, horodatage +2 ans | **INSERT** |
 
 ---
 
-## 4. `union` vs `unionByName`
-
-```python
-df_corrections.unionByName(df_nouveaux).drop("source")
-```
-
-`unionByName` aligne les colonnes **par nom**, pas par position — plus sûr quand les deux DataFrames ont la même structure mais un ordre de colonnes potentiellement différent.
-
----
-
-## 5. Lien avec le `MERGE INTO`
-
-Le batch est ensuite fusionné dans Delta :
-
-```python
-delta_table.alias("cible").merge(
-    df_batch.alias("source"),
-    "cible.station_id = source.station_id AND cible.horodatage = source.horodatage"
-)
-.whenMatchedUpdateAll()
-.whenNotMatchedInsertAll()
-.execute()
-```
-
-| Ligne du batch | Clé `(station_id, horodatage)` | Effet |
-|---|---|---|
-| correction | existe déjà dans Delta | **UPDATE** du `taux_occupation` |
-| nouvelle (horodatage décalé) | absente de Delta | **INSERT** |
-
----
-
-## 6. Synthèse
-
-| Problème | Solution |
-|---|---|
-| `horodatage` est une string | `to_timestamp` avant l'arithmétique temporelle |
-| conserver le format Velib' | `date_format(..., "yyyy-MM-dd'T'HH:mm'Z'")` |
-| éviter les doublons dans le batch | `offset(500)` sur les nouvelles lignes |
-| union de deux DataFrames | `unionByName` |
+## 4. Synthèse
 
 En une phrase : **pour décaler un `horodatage` string, on passe par `to_timestamp` → `+ INTERVAL` → `date_format`** — on n'additionne jamais l'intervalle directement sur la chaîne.
 
 ---
 
-<a id="28-fcolmois--1--filtrer-sur-janvier"></a>
+<a id="31-fcolmois--1--filtrer-sur-janvier"></a>
 
-# 28. `F.col("mois") == 1` — filtrer sur janvier
+# 31. `F.col("mois") == 1` — filtrer sur janvier
 
 > Notebook : `Spark_DIA3_Session_3.ipynb` — simulation batch MERGE (`df_corrections`, `df_nouveaux`)
 >
-> Voir aussi : [§27 — Simulation batch MERGE](#27-simulation-batch-merge--décaler-un-horodatage-string)
+> Voir aussi : [§30 — Simulation batch MERGE](#30-simulation-batch-merge--décaler-un-horodatage-string)
 
 ## Question
 
@@ -3536,102 +3617,138 @@ df_current.filter(F.col("mois") == 1)
 
 ## Réponse
 
-`F.col("mois") == 1` est un **filtre Spark** qui ne conserve que les lignes dont le mois calendaire vaut **1**, c'est-à-dire **janvier**.
+`F.col("mois") == 1` ne conserve que les lignes dont le mois calendaire vaut **1** (janvier). Équivalent SQL : `WHERE mois = 1`.
 
-Équivalent SQL :
+La colonne `mois` est créée en Session 2 via `.withColumn("mois", F.month("ts"))`.
 
-```sql
-WHERE mois = 1
-```
+Dans le batch MERGE, ce filtre **réduit le volume** (~550 lignes) et garantit un exemple homogène avant de décaler les insertions en 2022.
 
 ---
 
-## 1. Décomposition de l'expression
-
-| Morceau | Signification |
-|---|---|
-| `F` | alias de `pyspark.sql.functions` (importé en haut du notebook) |
-| `F.col("mois")` | référence à la colonne **`mois`** du DataFrame |
-| `== 1` | condition d'égalité avec la valeur **1** |
-
-On construit une **expression booléenne** (une colonne de type `boolean`) que `.filter()` utilise pour garder les lignes où le résultat est `true`.
-
----
-
-## 2. D'où vient la colonne `mois` ?
-
-Elle est créée en **Session 2** à partir de `horodatage` lors de l'enrichissement temporel du pipeline :
-
-```python
-.withColumn("mois", F.month("ts"))
-```
-
-| Valeur de `mois` | Mois calendaire |
-|---|---|
-| 1 | janvier |
-| 2 | février |
-| … | … |
-| 12 | décembre |
-
-Dans le projet, les données couvrent **2020 et 2021** : `mois == 1` sélectionne donc les snapshots de **janvier 2020 et janvier 2021**.
-
----
-
-## 3. Pourquoi ce filtre dans le batch MERGE ?
-
-```python
-df_corrections = (
-    df_current
-    .filter(F.col("mois") == 1)
-    .limit(500)
-    ...
-)
-
-df_nouveaux = (
-    df_current
-    .filter(F.col("mois") == 1)
-    .orderBy("station_id", "horodatage")
-    .offset(500)
-    .limit(50)
-    ...
-)
-```
-
-Objectifs :
-
-- **réduire le volume** du batch simulé (550 lignes au lieu de ~690 000) ;
-- garder un exemple **cohérent** pour le `MERGE INTO` ;
-- travailler sur un sous-ensemble homogène (même mois) avant de décaler les « nouvelles » lignes de 2 ans (`annee = 2022`, `mois = 1`).
-
----
-
-## 4. Variantes utiles
-
-```python
-# Janvier 2020 seulement
-df_current.filter((F.col("mois") == 1) & (F.col("annee") == 2020))
-
-# Syntaxe SQL (chaîne) — équivalent
-df_current.filter("mois = 1")
-
-# Plusieurs mois
-df_current.filter(F.col("mois").isin(1, 7))
-```
-
-**Attention :** pour combiner plusieurs conditions en API DataFrame, utiliser `&` (et) ou `|` (ou) — pas `and` / `or` Python — et mettre chaque condition entre parenthèses :
-
-```python
-(F.col("mois") == 1) & (F.col("annee") == 2020)
-```
-
----
-
-## 5. Synthèse
+## Synthèse
 
 | Écriture | Signification |
 |---|---|
-| `F.col("mois")` | colonne mois (1–12) |
-| `== 1` | janvier uniquement |
-| `.filter(...)` | ne garde que les lignes qui vérifient la condition |
+| `F.col("mois") == 1` | janvier uniquement |
+| `.filter(...)` | sous-ensemble pour la démo MERGE |
 
-En une phrase : **`F.col("mois") == 1` sélectionne les observations Vélib' enregistrées en janvier** — ici pour limiter le batch de démonstration du `MERGE`.
+---
+
+<a id="32-merge-into-en-spark-sql--chemin-absolu-delta"></a>
+
+# 32. `MERGE INTO` en Spark SQL — chemin absolu Delta
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — §1.4 Delta Lake (`MERGE INTO`)
+
+## Question
+
+Pourquoi utiliser un **chemin absolu** dans :
+
+```sql
+MERGE INTO delta.`/Users/.../data/output/delta/disponibilite` AS cible
+```
+
+---
+
+## Réponse
+
+En Spark SQL, `MERGE INTO delta.\`...\`` attend un chemin que la JVM peut résoudre sans ambiguïté. Un chemin **relatif** peut échouer selon le répertoire de travail du driver.
+
+```python
+delta_path = str(DELTA_DISPONIBLE.resolve())
+
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS cible
+    USING batch_entrant AS source
+    ON  cible.station_id = source.station_id
+    AND cible.horodatage = source.horodatage
+    WHEN MATCHED THEN
+        UPDATE SET *
+    WHEN NOT MATCHED THEN
+        INSERT *
+""")
+```
+
+| Clause | Effet |
+|---|---|
+| `WHEN MATCHED THEN UPDATE SET *` | met à jour les lignes existantes (clé `(station_id, horodatage)`) |
+| `WHEN NOT MATCHED THEN INSERT *` | insère les nouvelles lignes |
+
+Chaque `MERGE` crée une **nouvelle version** Delta visible dans l'historique ([§33](#33-describe-history-et-time-travel-versionasof)).
+
+---
+
+## Synthèse
+
+`MERGE INTO` = upsert SQL natif Delta : **UPDATE** si la clé existe, **INSERT** sinon. Toujours passer le chemin absolu via `.resolve()` en local.
+
+---
+
+<a id="33-describe-history-et-time-travel-versionasof"></a>
+
+# 33. `DESCRIBE HISTORY` et time travel (`versionAsOf`)
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — exercice time-travel après MERGE
+
+## Question
+
+Comment lire l'historique Delta et comparer janvier 2022 **avant** et **après** un `MERGE` ?
+
+---
+
+## Réponse
+
+### 1. Lire l'historique avec `DESCRIBE HISTORY`
+
+`DESCRIBE HISTORY` est une **commande SQL autonome** — elle ne peut pas être placée dans un `FROM (...)` :
+
+```python
+delta_path = str(DELTA_DISPONIBLE.resolve())
+
+derniere_op = (
+    spark.sql(f"DESCRIBE HISTORY delta.`{delta_path}`")
+    .orderBy(F.col("version").desc())
+    .select("version", "operation")
+    .first()
+)
+```
+
+Versions typiques du pipeline Session 3 :
+
+| Version | Opération | Contenu |
+|---|---|---|
+| v0 | `WRITE` (overwrite) | données 2020 |
+| v1 | `WRITE` (append) | + données 2021 |
+| v2+ | `MERGE` | corrections + insertions |
+
+### 2. Choisir la version « avant MERGE »
+
+```python
+if derniere_op.operation == "MERGE":
+    version_avant_merge = derniere_op.version - 1
+```
+
+### 3. Time travel avec `versionAsOf`
+
+```python
+df_avant = (
+    spark.read.format("delta")
+    .option("versionAsOf", version_avant_merge)
+    .load(str(DELTA_DISPONIBLE))
+)
+
+df_apres = spark.read.format("delta").load(str(DELTA_DISPONIBLE))
+```
+
+On agrège ensuite sur janvier 2022 (`annee = 2022 AND mois = 1`) pour comparer le taux moyen avant/après merge.
+
+---
+
+## Synthèse
+
+| Outil | Rôle |
+|---|---|
+| `spark.sql("DESCRIBE HISTORY delta.\`...\`")` | liste des versions et opérations |
+| `.option("versionAsOf", n)` | relire la table **telle qu'elle était** à la version `n` |
+
+En une phrase : **`DESCRIBE HISTORY` identifie la version juste avant le MERGE ; `versionAsOf` permet de voyager dans le temps pour comparer les agrégats.**

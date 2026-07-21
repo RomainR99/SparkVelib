@@ -30,6 +30,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 21. [`show(truncate=False)` — afficher le texte complet](#21-showtruncatefalse--afficher-le-texte-complet)
 22. [`DATE_TRUNC` — aligner Velib et météo à l'heure](#22-date_trunc--aligner-velib-et-météo-à-lheure)
 23. [`nb_snapshots` — nombre d'observations, pas de bornes vides](#23-nb_snapshots--nombre-dobservations-pas-de-bornes-vides)
+24. [Alias `d` et `m` — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
+25. [Inspecter le format de `horodatage` avant `TO_TIMESTAMP`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -2930,3 +2932,298 @@ Cela veut dire : **on ne garde que les arrondissements avec au moins 50 observat
 | `bornettes_libres` | places libres sur une station à un instant |
 
 En une phrase : **`nb_snapshots` = combien de fois on a observé des stations**, pas combien de bornes étaient vides.
+
+---
+
+<a id="24-alias-d-et-m--jointure-velib--météo"></a>
+
+# 24. Alias `d` et `m` — jointure Velib × météo
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — exercice semaine sec / week-end pluvieux (`df_q2`, `df_q2_arr`, exercice ratio)
+>
+> Voir aussi : [§19 — Alias SQL : que signifie `d.station_id` ?](#19-alias-sql--que-signifie-dstation_id-)
+
+## Question
+
+Dans la requête SQL de l'exercice, que signifient les alias **`d`** et **`m`** dans :
+
+```sql
+SELECT
+    d.station_id,
+    d.nom_station,
+    d.taux_occupation,
+    d.est_weekend,
+    m.est_pluie
+FROM (...) d
+LEFT JOIN (...) m
+    ON d.heure_tronquee = m.heure_tronquee
+```
+
+---
+
+## Réponse
+
+`d` et `m` sont des **alias** (surnoms) de tables — une convention SQL pour raccourcir les noms et lever les ambiguïtés quand on joint plusieurs sources.
+
+| Alias | Signification | Source |
+|---|---|---|
+| **`d`** | **d**isponibilité | snapshots Vélib' (`disponibilite`) |
+| **`m`** | **m**étéo | données météo (`meteo`) |
+
+Les lettres sont arbitraires : on pourrait écrire `velib` et `meteo`. `d` / `m` est simplement court et lisible.
+
+---
+
+## 1. Où sont définis les alias ?
+
+```sql
+FROM (
+    SELECT
+        station_id,
+        nom_station,
+        taux_occupation,
+        est_weekend,
+        DATE_TRUNC('hour', TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'")) AS heure_tronquee
+    FROM disponibilite
+    WHERE station_id IS NOT NULL
+) d                          -- alias "d" = sous-requête Velib'
+LEFT JOIN (
+    SELECT
+        DATE_TRUNC('hour', TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm")) AS heure_tronquee,
+        CASE WHEN precipitations > 0 THEN true ELSE false END AS est_pluie
+    FROM meteo
+) m                          -- alias "m" = sous-requête météo
+    ON d.heure_tronquee = m.heure_tronquee
+```
+
+Chaque alias porte sur une **sous-requête** entre parenthèses, pas directement sur la vue `disponibilite` ou la table `meteo`.
+
+---
+
+## 2. À quoi servent-ils ?
+
+### Préfixer les colonnes
+
+Quand deux tables (ou sous-requêtes) peuvent avoir des colonnes homonymes, le préfixe indique la provenance :
+
+```sql
+d.station_id    -- vient de Velib'
+m.est_pluie     -- vient de la météo
+```
+
+Sans préfixe, SQL ne sait pas de quelle table vient la colonne.
+
+### Écrire la jointure plus clairement
+
+```sql
+ON d.heure_tronquee = m.heure_tronquee
+```
+
+Les deux côtés sont alignés à l'heure grâce à `DATE_TRUNC` (voir [§22](#22-date_trunc--aligner-velib-et-météo-à-lheure)).
+
+---
+
+## 3. Schéma mental de la jointure
+
+```text
+disponibilite (d)              meteo (m)
+─────────────────              ─────────
+station_id                     heure_tronquee
+nom_station                    est_pluie
+taux_occupation        JOIN    (pluie ou sec)
+est_weekend            ON       même heure
+heure_tronquee    ═══════════  heure_tronquee
+```
+
+Le `SELECT` final mélange les deux sources :
+
+- `d.station_id`, `d.taux_occupation`, `d.est_weekend` → côté Vélib'
+- `m.est_pluie` → côté météo
+
+---
+
+## 4. Même convention ailleurs dans le notebook
+
+D'autres requêtes utilisent la même logique avec des lettres différentes :
+
+| Requête | Alias Velib | Alias météo |
+|---|---|---|
+| `df_q2` | `v` | `m` |
+| Exercice ratio | `d` | `m` |
+| `df_q2_arr` | `d` | `m` |
+
+Peu importe la lettre choisie : **`v` ou `d` = Velib'**, **`m` = météo**.
+
+---
+
+## 5. Synthèse
+
+| Écriture | Signification |
+|---|---|
+| `d.station_id` | colonne `station_id` de la sous-requête Velib' |
+| `d.est_weekend` | booléen week-end, calculé côté Velib' |
+| `m.est_pluie` | booléen pluie, calculé côté météo |
+| `d.heure_tronquee = m.heure_tronquee` | clé de jointure horaire |
+
+En une phrase : **`d` et `m` sont des noms courts pour distinguer les colonnes Velib' et météo dans une jointure SQL** — ils n'altèrent ni les données ni le résultat.
+
+---
+
+<a id="25-inspecter-le-format-de-horodatage-avant-to_timestamp"></a>
+
+# 25. Inspecter le format de `horodatage` avant `TO_TIMESTAMP`
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — cellules de diagnostic avant les jointures Velib × météo (`df_q2`, exercice ratio)
+>
+> Voir aussi : [§22 — `DATE_TRUNC`](#22-date_trunc--aligner-velib-et-météo-à-lheure), [§21 — `show(truncate=False)`](#21-showtruncatefalse--afficher-le-texte-complet)
+
+## Question
+
+Comment savoir quel pattern passer à `TO_TIMESTAMP(horodatage, "…")` ?
+
+Par exemple, pourquoi écrire `"yyyy-MM-dd'T'HH:mm'Z'"` côté Velib' et `"yyyy-MM-dd'T'HH:mm"` côté météo ?
+
+---
+
+## Réponse
+
+Il faut d'abord **regarder la chaîne brute** telle qu'elle est stockée — pas deviner. Deux requêtes simples suffisent, une par source.
+
+**Prérequis :** la vue `disponibilite` est chargée ; la vue `meteo` est créée (cellule `df_q2`).
+
+---
+
+## 1. Velib' — `disponibilite`
+
+```python
+# Inspecter le format brut des horodatages
+spark.sql("""
+    SELECT horodatage
+    FROM disponibilite
+    LIMIT 5
+""").show(truncate=False)
+```
+
+**Résultat typique :**
+
+```text
++-----------------+
+|horodatage       |
++-----------------+
+|2020-12-04T03:07Z|
+|2020-12-04T03:07Z|
+...
+```
+
+**Pattern déduit :**
+
+```sql
+TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'")
+```
+
+| Morceau de la chaîne | Code dans le pattern |
+|---|---|
+| `2020-12-04` | `yyyy-MM-dd` |
+| `T` | `'T'` (lettre fixe, entre quotes) |
+| `03:07` | `HH:mm` |
+| `Z` | `'Z'` (lettre fixe, entre quotes) |
+
+---
+
+## 2. Météo — `meteo`
+
+```python
+spark.sql("""
+    SELECT horodatage
+    FROM meteo
+    LIMIT 5
+""").show(truncate=False)
+```
+
+**Résultat typique :**
+
+```text
++----------------+
+|horodatage      |
++----------------+
+|2020-01-01T00:00|
+|2020-01-01T01:00|
+...
+```
+
+**Pattern déduit :**
+
+```sql
+TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm")
+```
+
+Pas de `Z` final → pas de `'Z'` dans le pattern.
+
+---
+
+## 3. Pourquoi `truncate=False` ?
+
+Sans `truncate=False`, Spark peut tronquer les chaînes longues dans l'affichage :
+
+```text
+|2020-12-04T03:0...|   ← on ne voit plus le Z final
+```
+
+On risque alors de choisir un mauvais pattern. `truncate=False` affiche la valeur **complète**.
+
+---
+
+## 4. Vérifier que le parsing fonctionne
+
+Si le format est incorrect, `TO_TIMESTAMP` renvoie `NULL` :
+
+```python
+spark.sql("""
+    SELECT
+        horodatage,
+        TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'") AS ts_parse
+    FROM disponibilite
+    LIMIT 5
+""").show(truncate=False)
+```
+
+| `ts_parse` | Interprétation |
+|---|---|
+| valeur datetime | format OK |
+| `null` | mauvais pattern |
+
+Comptage global :
+
+```sql
+SELECT
+    COUNT(*) AS total,
+    COUNT(TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'")) AS parses_ok
+FROM disponibilite
+```
+
+Si `parses_ok < total`, le pattern ne correspond pas à toutes les lignes.
+
+---
+
+## 5. Lire `T'HH:mm'Z'` dans le pattern Velib'
+
+Pour la chaîne `2020-12-04T03:07Z` :
+
+```text
+2020-12-04  T  03:07  Z
+yyyy-MM-dd 'T' HH:mm 'Z'
+```
+
+- `'T'` et `'Z'` = caractères **fixes** (quotes = littéraux)
+- `HH` = heures, `mm` = minutes = parties **variables**
+
+---
+
+## 6. Synthèse
+
+| Source | Exemple | Pattern `TO_TIMESTAMP` |
+|---|---|---|
+| Velib' (`disponibilite`) | `2020-12-04T03:07Z` | `"yyyy-MM-dd'T'HH:mm'Z'"` |
+| Météo (`meteo`) | `2020-01-01T00:00` | `"yyyy-MM-dd'T'HH:mm"` |
+
+En une phrase : **on inspecte d'abord `horodatage` avec `show(truncate=False)`, puis on construit le pattern en recopiant la structure de la chaîne** — les deux sources du projet n'ont pas le même suffixe (`Z` ou non).

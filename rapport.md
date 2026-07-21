@@ -28,6 +28,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 19. [Alias SQL : que signifie `d.station_id` ?](#19-alias-sql--que-signifie-dstation_id-)
 20. [`LEFT ANTI JOIN` — exclure les lignes qui matchent](#20-left-anti-join--exclure-les-lignes-qui-matchent)
 21. [`show(truncate=False)` — afficher le texte complet](#21-showtruncatefalse--afficher-le-texte-complet)
+22. [`DATE_TRUNC` — aligner Velib et météo à l'heure](#22-date_trunc--aligner-velib-et-météo-à-lheure)
+23. [`nb_snapshots` — nombre d'observations, pas de bornes vides](#23-nb_snapshots--nombre-dobservations-pas-de-bornes-vides)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -2678,3 +2680,253 @@ Dans le notebook Session 3, `df_q1.show(truncate=False)` est utile pour lire en 
 | `df.show()` | affichage compact, texte tronqué |
 | `df.show(truncate=False)` | affichage complet des chaînes |
 | `df.show(20, truncate=False)` | 20 lignes, texte non tronqué |
+
+---
+
+<a id="22-date_trunc--aligner-velib-et-météo-à-lheure"></a>
+
+# 22. `DATE_TRUNC` — aligner Velib et météo à l'heure
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — Question 2 (`df_q2`), jointure SQL Velib × météo
+
+## Question
+
+Que fait cette expression dans la requête `df_q2` ?
+
+```sql
+DATE_TRUNC('hour', TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'"))
+```
+
+Et pourquoi l'utilise-t-on **des deux côtés** de la jointure ?
+
+---
+
+## Réponse
+
+`DATE_TRUNC` **tronque** une date/heure à la précision choisie : tout ce qui est plus fin (minutes, secondes…) est remis à zéro.
+
+Dans ce projet, on l'utilise pour répondre à la question : **« à quelle heure ? »**, en ignorant les minutes et les secondes — indispensable pour joindre les snapshots Vélib' (fréquents) à la météo Montsouris (une mesure par heure).
+
+---
+
+## 1. Syntaxe Spark SQL
+
+```sql
+DATE_TRUNC(unité, timestamp)
+```
+
+| Paramètre | Rôle |
+|---|---|
+| `unité` | précision cible : `'year'`, `'month'`, `'day'`, `'hour'`, `'minute'`… |
+| `timestamp` | valeur datetime à tronquer |
+
+Exemple :
+
+```sql
+DATE_TRUNC('hour', timestamp '2020-06-15 14:37:22')
+-- → 2020-06-15 14:00:00
+```
+
+Deux horodatages dans la **même heure** produisent la **même clé** après troncature.
+
+---
+
+## 2. Exemples concrets
+
+| Valeur d'entrée | `DATE_TRUNC('hour', …)` |
+|---|---|
+| `2020-06-15 14:37:22` | `2020-06-15 14:00:00` |
+| `2020-06-15 14:59:59` | `2020-06-15 14:00:00` |
+| `2020-06-15 15:00:01` | `2020-06-15 15:00:00` |
+
+Un snapshot Vélib' à **14:37** et une mesure météo à **14:00** tombent tous les deux sur la clé **`2020-06-15 14:00:00`**.
+
+---
+
+## 3. Pourquoi c'est nécessaire dans `df_q2`
+
+Velib et météo n'ont **pas le même format** d'horodatage :
+
+| Source | Exemple | Granularité |
+|---|---|---|
+| Vélib' (`disponibilite`) | `2020-01-01T14:37:00Z` | snapshot (minutes possibles) |
+| Météo (`meteo` CSV) | `2020-01-01T14:00` | horaire |
+
+La jointure se fait **heure par heure** :
+
+```sql
+WITH disponibilite_h AS (
+    SELECT
+        taux_occupation,
+        DATE_TRUNC('hour', TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'")) AS heure_tronquee
+    FROM disponibilite
+),
+meteo_h AS (
+    SELECT
+        DATE_TRUNC('hour', TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm")) AS heure_tronquee,
+        ...
+    FROM meteo
+)
+SELECT ...
+FROM disponibilite_h v
+LEFT JOIN meteo_h m
+    ON v.heure_tronquee = m.heure_tronquee
+```
+
+Sans `DATE_TRUNC`, une égalité stricte sur l'horodatage complet échouerait presque toujours (`14:37:00` ≠ `14:00:00`).
+
+---
+
+## 4. Lien avec le `LEFT JOIN`
+
+Après troncature :
+
+- si une heure météo existe → `est_pluie` vaut `true` ou `false` ;
+- si aucune correspondance → `est_pluie IS NULL` (groupe `jointure_meteo_absente`).
+
+La requête `df_q2` compare alors les distributions de `taux_occupation` par condition météo :
+
+| `condition_meteo` | Signification |
+|---|---|
+| `sec` | météo jointe, pas de pluie |
+| `pluie` | météo jointe, précipitations > 0 |
+| `jointure_meteo_absente` | aucune météo pour cette heure |
+
+---
+
+## 5. Autres précisions possibles
+
+| Unité | Effet |
+|---|---|
+| `'year'` | 1er janvier 00:00:00 |
+| `'month'` | 1er du mois 00:00:00 |
+| `'day'` | minuit du jour |
+| `'hour'` | début de l'heure (**cas du projet**) |
+| `'minute'` | début de la minute |
+
+---
+
+## 6. Synthèse
+
+| Expression | Signification |
+|---|---|
+| `DATE_TRUNC('hour', ts)` | ramène `ts` au début de l'heure |
+| côté Vélib' | normalise les snapshots fréquents |
+| côté météo | aligne les mesures horaires Montsouris |
+| dans `df_q2` | clé de jointure pour comparer occupation sec / pluie |
+
+En une phrase : **`DATE_TRUNC('hour', …)` transforme des horodatages précis en clés horaires communes**, ce qui rend possible la jointure SQL entre disponibilité Vélib' et météo.
+
+---
+
+<a id="23-nb_snapshots--nombre-dobservations-pas-de-bornes-vides"></a>
+
+# 23. `nb_snapshots` — nombre d'observations, pas de bornes vides
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — Questions 2 (`df_q2`, `df_q2_arr`)
+
+## Question
+
+Dans les requêtes SQL, que signifie la colonne `nb_snapshots` ?
+
+Est-ce le nombre de **bornes vides** ?
+
+---
+
+## Réponse
+
+**Non.** `nb_snapshots` compte le **nombre de lignes** — c'est-à-dire le **nombre d'observations** (snapshots) dans le groupe SQL — et **pas** le nombre de bornettes libres.
+
+En SQL, on l'obtient avec :
+
+```sql
+COUNT(*) AS nb_snapshots
+```
+
+Chaque ligne comptée correspond à **un snapshot** : une mesure de l'état d'une station Vélib' à un instant donné.
+
+---
+
+## 1. Qu'est-ce qu'un snapshot ?
+
+Une ligne de la table `disponibilite` ressemble à :
+
+```text
+station X | 2020-03-15 14:00 | taux_occupation=0.06 | bornettes_libres=28 | statut=normal
+```
+
+C'est une **photo** de la station à un moment précis, pas une borne individuelle.
+
+Donc :
+
+- **1 snapshot** = 1 observation enregistrée ;
+- **690 858 snapshots** = 690 858 mesures au total dans la table.
+
+---
+
+## 2. Exemple dans `df_q2`
+
+```text
+|condition_meteo|nb_snapshots|
+|sec            |522240        |
+|pluie          |168618        |
+```
+
+Interprétation :
+
+- **522 240 snapshots** ont été pris par temps sec ;
+- **168 618 snapshots** ont été pris sous la pluie.
+
+Ce ne sont **pas** 522 240 bornes vides.
+
+---
+
+## 3. Ne pas confondre avec les bornes vides
+
+| Colonne / notion | Signification |
+|---|---|
+| `nb_snapshots` | nombre de **mesures** dans le groupe |
+| `bornettes_libres` | nombre de places libres sur **une station** à **un instant** |
+| `statut = 'vide'` | station quasi vide (`taux_occupation < 10 %`) |
+| `capacite` | nombre total de bornettes sur la station |
+
+Pour compter les stations vides, on filtrerait plutôt :
+
+```sql
+WHERE statut = 'vide'
+```
+
+ou on utiliserait la colonne `bornettes_libres`.
+
+---
+
+## 4. Exemple dans `df_q2_arr`
+
+```sql
+COUNT(*) AS nb_snapshots
+```
+
+Ici, `nb_snapshots` signifie :
+
+**combien de snapshots Velib' existent pour cet arrondissement (`code_arr`)**, avec une météo jointe.
+
+Le `HAVING` de la requête impose par exemple :
+
+```sql
+HAVING COUNT(CASE WHEN est_pluie = false THEN 1 END) > 50
+   AND COUNT(CASE WHEN est_pluie = true  THEN 1 END) > 50
+```
+
+Cela veut dire : **on ne garde que les arrondissements avec au moins 50 observations par temps sec et 50 par temps pluvieux** — pour que la comparaison soit statistiquement fiable.
+
+---
+
+## 5. Synthèse
+
+| Terme | Signification |
+|---|---|
+| `snapshot` | une mesure horaire d'une station |
+| `nb_snapshots` | nombre de ces mesures dans le groupe |
+| `bornettes_libres` | places libres sur une station à un instant |
+
+En une phrase : **`nb_snapshots` = combien de fois on a observé des stations**, pas combien de bornes étaient vides.

@@ -17,6 +17,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
 10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
 11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
+12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1215,3 +1216,258 @@ Savoir lire `explain()` permet de vérifier qu'une optimisation explicite (`broa
 ## 6. Synthèse
 
 `df_joint.explain(mode="formatted")` = « Montre-moi l'arbre des opérations physiques que Spark utilisera pour calculer `df_joint`. » Dans la jointure Vélib' × météo, l'objectif est de **confirmer visuellement** la présence de `BroadcastHashJoin` plutôt qu'un shuffle coûteux.
+
+---
+
+<a id="12-pourquoi-parquet-plutôt-que-csv-ou-json"></a>
+
+# 12. Pourquoi Parquet plutôt que CSV ou JSON ?
+
+> Notebook : `Spark_DIA3_Session_2.ipynb` — §2.2 Lecture Parquet, §2.8 Écriture partitionnée
+
+## Question
+
+Pourquoi convertir les données Vélib' en **Parquet** plutôt que de rester en CSV ou JSON pour les analyses Spark ?
+
+---
+
+## Réponse
+
+**Parquet** est beaucoup plus adapté au Big Data que CSV ou JSON : il est conçu pour être **rapide**, **compact** et **optimisé pour les traitements distribués** (Spark, Hadoop, Databricks, etc.).
+
+Dans ce projet, le CSV sert à l'**import initial** (`historique_stations.csv`, ~376 Mo) ; le Parquet sert au **stockage analytique** (`data/velib/parquet/`, `disponibilite_consolidee.parquet`).
+
+---
+
+## Tableau comparatif
+
+| Critère | CSV | JSON | Parquet |
+|---|---|---|---|
+| Taille du fichier | Grande | Très grande | **Petite** |
+| Compression | Non | Non | **Oui** |
+| Schéma (types) | Non | Non | **Oui** |
+| Lecture par colonnes | Non | Non | **Oui** |
+| Très rapide avec Spark | Non | Moyen | **Oui** |
+
+---
+
+## 1. Parquet est un format colonnaire
+
+C'est la plus grande différence.
+
+### CSV — stockage ligne par ligne
+
+```
+Alice,Lyon,1200
+Bob,Paris,1500
+Claire,Lille,1800
+```
+
+En mémoire, une ligne = un enregistrement complet :
+
+```
+Nom    | Ville  | Salaire
+---------------------------
+Alice  | Lyon   | 1200
+Bob    | Paris  | 1500
+Claire | Lille  | 1800
+```
+
+Si vous voulez uniquement les salaires, Spark est obligé de lire **aussi** les noms et les villes.
+
+### Parquet — stockage colonne par colonne
+
+```
+Nom          Ville         Salaire
+-----        -----         -------
+Alice        Lyon          1200
+Bob          Paris         1500
+Claire       Lille         1800
+```
+
+Chaque colonne est stockée **séparément** sur disque.
+
+Si vous faites :
+
+```python
+df.select("Salaire")
+```
+
+Spark lit **uniquement** la colonne `Salaire`.
+
+**Résultat :**
+
+- moins de lecture disque ;
+- moins de mémoire utilisée ;
+- beaucoup plus rapide.
+
+---
+
+## 2. Compression beaucoup plus efficace
+
+Les valeurs similaires sont regroupées dans une même colonne.
+
+Exemple — une colonne `Ville` :
+
+```
+Paris
+Paris
+Paris
+Paris
+Paris
+Paris
+```
+
+Dans un CSV, le mot `Paris` est écrit **6 fois**.
+
+Dans Parquet, il peut être encodé de manière beaucoup plus compacte (dictionnaire, run-length encoding).
+
+Ordre de grandeur typique sur un même jeu de données :
+
+| Format | Taille indicative |
+|---|---|
+| CSV | 10 Go |
+| JSON | 15 Go |
+| Parquet | 2–3 Go |
+
+Dans le notebook §2.8, la cellule de comparaison `taille_dossier_mb()` illustre ce rapport sur vos propres fichiers.
+
+---
+
+## 3. Les types sont conservés
+
+Dans un CSV :
+
+```
+1200
+```
+
+Spark ne sait pas si c'est un **entier**, un **texte** ou une **date** — il doit inférer ou parser manuellement (comme `parse_ligne()` en Session 1).
+
+Dans Parquet, le type est **embarqué dans le fichier** :
+
+| Colonne | Type Parquet |
+|---|---|
+| `Salaire` | `Integer` |
+| `horodatage` | `Timestamp` |
+| `taux_occupation` | `Double` |
+
+Pas d'ambiguïté à la lecture : `spark.read.parquet()` restitue directement le bon schéma.
+
+---
+
+## 4. Spark lit beaucoup plus vite
+
+Imaginez une table de **100 colonnes**. Vous voulez uniquement :
+
+```python
+df.select("nom_station")
+```
+
+| Format | Ce que Spark lit |
+|---|---|
+| **CSV** | les 100 colonnes, puis ne garde qu'une |
+| **Parquet** | **uniquement** la colonne `nom_station` |
+
+Sur des **milliards de lignes**, la différence de temps est énorme.
+
+---
+
+## 5. Optimisé pour Spark : column pruning
+
+Spark applique le **column pruning** (élagage de colonnes) automatiquement sur Parquet.
+
+Exemple :
+
+```python
+df.select("nom_station", "taux_occupation")
+```
+
+Avec Parquet, le plan physique ne lit que les colonnes demandées :
+
+```
+Lecture disque
+    │
+    ├── nom_station      ✔
+    ├── taux_occupation  ✔
+    ├── coordonnees      ✘
+    ├── velos_meca       ✘
+    ├── velos_elec       ✘
+    └── …                ✘
+```
+
+On ne lit que ce qui est nécessaire — invisible avec un CSV lu via `textFile()`.
+
+---
+
+## 6. Les filtres sont plus rapides (predicate pushdown)
+
+Si vous écrivez :
+
+```python
+df.filter(df.annee == 2020)
+```
+
+Parquet stocke des **statistiques par bloc** (min, max, nombre de valeurs nulles…). Si un bloc ne contient que des années 2021, Spark peut **sauter ce bloc** sans le lire.
+
+Avec un CSV, il faut parcourir **toutes les lignes** pour vérifier le filtre.
+
+C'est le **predicate pushdown** : le filtre est poussé le plus bas possible dans le plan d'exécution, au plus près du disque.
+
+---
+
+## 7. Exemple concret
+
+Données :
+
+- **1 milliard** de lignes ;
+- **50** colonnes ;
+- requête : `df.select("prix")`.
+
+### CSV
+
+```
+Lire les 50 colonnes
+        ↓
+Garder uniquement "prix"
+```
+
+→ Temps : **long** (I/O inutile sur 49 colonnes).
+
+### Parquet
+
+```
+Lire directement la colonne "prix"
+```
+
+→ Temps : **beaucoup plus court**.
+
+---
+
+## 8. Lien avec le projet ClimaCity
+
+| Étape | Format | Rôle |
+|---|---|---|
+| Import brut | CSV (`historique_stations.csv`) | échange, simplicité, compatibilité |
+| Stockage intermédiaire | Parquet (`data/velib/parquet/`) | lecture rapide, partitions `annee`/`mois` |
+| Table consolidée | Parquet (`disponibilite_consolidee.parquet`) | jointure Vélib' × météo, réutilisation Jour 2+ |
+
+Le pattern standard en production Spark :
+
+1. **Importer** en CSV (ou JSON) une seule fois ;
+2. **Convertir** en Parquet partitionné ;
+3. **Analyser** exclusivement sur Parquet.
+
+---
+
+## 9. Synthèse
+
+Parquet est privilégié en Big Data parce qu'il :
+
+1. **stocke par colonnes** — ne lit que les colonnes utiles ;
+2. **compresse efficacement** — moins d'espace disque et moins de transfert réseau ;
+3. **conserve les types** — pas d'inférence ni de parsing manuel ;
+4. **permet le column pruning et le predicate pushdown** — Spark ignore colonnes et blocs inutiles ;
+5. **est donc beaucoup plus performant** sur de très grands volumes que les formats texte (CSV, JSON).
+
+C'est pour ces raisons que, dans la plupart des projets Spark en production, on utilise le CSV uniquement pour **importer** les données, puis on les convertit rapidement en **Parquet** avant de lancer les analyses.

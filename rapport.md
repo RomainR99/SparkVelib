@@ -23,6 +23,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 14. [Que sont les JARs Delta ?](#14-que-sont-les-jars-delta)
 15. [Résumé d'une table : `df.count()` et `len(df.columns)`](#15-résumé-dune-table--dfcount-et-lendfcolumns)
 16. [Spark SQL : distribution des statuts par arrondissement](#16-spark-sql--distribution-des-statuts-par-arrondissement)
+17. [`SHOW VIEWS` — vérifier qu'une vue temporaire est enregistrée](#17-show-views--vérifier-quune-vue-temporaire-est-enregistrée)
+18. [`nullable = true` dans un schéma Spark](#18-nullable--true-dans-un-schéma-spark)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -2138,3 +2140,143 @@ Cette requête Spark SQL regroupe les snapshots par **arrondissement** et **stat
 3. l'**écart-type** de l'occupation.
 
 Le `4` dans `ROUND(..., 4)` signifie simplement : **afficher 4 décimales après la virgule**.
+
+---
+
+<a id="17-show-views--vérifier-quune-vue-temporaire-est-enregistrée"></a>
+
+# 17. `SHOW VIEWS` — vérifier qu'une vue temporaire est enregistrée
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — cellule de vérification avant les requêtes SQL
+
+## Question
+
+Pourquoi la commande suivante ne lève-t-elle pas d'erreur, et à quoi fait-elle référence ?
+
+```python
+spark.sql("SHOW VIEWS").show()
+```
+
+---
+
+## Réponse
+
+`SHOW VIEWS` est une commande **Spark SQL** (inspirée de Hive/SQL standard) qui liste toutes les **vues temporaires** enregistrées dans la session Spark courante.
+
+Elle n'interroge **aucune donnée** : elle consulte le **catalogue interne de Spark** (`SessionCatalog`), qui mémorise les vues déclarées via `createOrReplaceTempView(...)`. C'est pour cela qu'elle s'exécute sans erreur, même si aucun fichier n'a encore été lu.
+
+---
+
+## Ce qu'elle affiche
+
+```text
++---------+-------------+-----------+
+|namespace|     viewName|isTemporary|
++---------+-------------+-----------+
+|         |disponibilite|       true|
++---------+-------------+-----------+
+```
+
+| Colonne | Signification |
+|---|---|
+| `namespace` | catalogue / base de données (vide = catalogue par défaut) |
+| `viewName` | nom de la vue |
+| `isTemporary` | `true` = vue temporaire (disparaît à la fin de la session) |
+
+---
+
+## Quand la vue est-elle créée ?
+
+Dans la cellule précédente :
+
+```python
+df.createOrReplaceTempView("disponibilite")
+```
+
+Cette instruction dit à Spark : **« enregistre ce DataFrame sous le nom `disponibilite` dans le catalogue SQL »**.
+
+`SHOW VIEWS` sert ensuite à **confirmer** que l'enregistrement a bien eu lieu avant d'écrire les premières requêtes SQL dessus.
+
+---
+
+## Synthèse
+
+| | `SHOW VIEWS` | `df.show()` |
+|---|---|---|
+| Interroge | le catalogue Spark (métadonnées) | les données du DataFrame |
+| Déclenche un calcul Spark ? | non | oui (action) |
+| Utile pour | vérifier qu'une vue existe | afficher un aperçu des données |
+
+---
+
+<a id="18-nullable--true-dans-un-schéma-spark"></a>
+
+# 18. `nullable = true` dans un schéma Spark
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — affichage du schéma avec `printSchema()`
+
+## Question
+
+Que signifie l'indication suivante dans un schéma Spark ?
+
+```text
+|-- code_arr: integer (nullable = true)
+```
+
+---
+
+## Réponse
+
+`nullable = true` signifie que la colonne **a le droit de contenir des valeurs `NULL`**.
+
+Autrement dit :
+
+- `code_arr` est de type `integer`
+- mais Spark autorise l'absence de valeur sur certaines lignes
+
+À l'inverse :
+
+```text
+|-- id: integer (nullable = false)
+```
+
+signifie que Spark attend une valeur renseignée pour chaque ligne.
+
+---
+
+## Exemple concret
+
+Dans ce projet, après certaines jointures, il peut arriver qu'un snapshot ne trouve pas d'arrondissement correspondant.
+
+On peut alors obtenir :
+
+```text
+code_arr = NULL
+```
+
+C'est précisément pour cela que la colonne peut apparaître comme :
+
+```text
+(nullable = true)
+```
+
+---
+
+## Lien avec la requête SQL
+
+Dans la requête sur la distribution des statuts par arrondissement, on a utilisé :
+
+```sql
+WHERE code_arr IS NOT NULL
+```
+
+Cette condition sert à **exclure les lignes où l'arrondissement manque** avant le `GROUP BY`.
+
+---
+
+## Synthèse
+
+| Valeur | Signification |
+|---|---|
+| `nullable = true` | la colonne peut contenir `NULL` |
+| `nullable = false` | la colonne ne doit pas contenir `NULL` |

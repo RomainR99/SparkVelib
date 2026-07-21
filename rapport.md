@@ -7,7 +7,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
 | [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
 | [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34 |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§35 |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -64,6 +64,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 ### Session 4 — Structured Streaming
 
 34. [Simulateur de flux + cellule de vérification Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4)
+35. [Sink console PySpark vs simulation Python pure (§2.4)](#35-sink-console-pyspark-vs-simulation-python-pure-24)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -118,7 +119,8 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | Étape notebook | Section rapport |
 |---|---|
 | simulateur + vérification JSON | [§34 Simulateur Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
-| `readStream`, fenêtres, sinks | `Spark_DIA3_Session_4.ipynb` §2.3+ |
+| sink console PySpark vs Python | [§35 Console vs Python pur](#35-sink-console-pyspark-vs-simulation-python-pure-24) |
+| `readStream`, fenêtres, sinks Delta | `Spark_DIA3_Session_4.ipynb` §2.5+ |
 
 ---
 
@@ -3822,3 +3824,142 @@ simulateur_flux.py  ──écrit──→   data/output/stream_input/*.json
 | Cellule §2.2 Session 4 | confirme que des JSON arrivent avant `readStream` |
 
 En une phrase : **lance le simulateur dans le terminal, puis exécute la cellule de vérification dans le notebook — les deux doivent tourner en même temps pour voir des JSON.**
+
+---
+
+<a id="35-sink-console-pyspark-vs-simulation-python-pure-24"></a>
+
+# 35. Sink console PySpark vs simulation Python pure (§2.4)
+
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.4 Première requête : sink console  
+> Voir aussi : [§34 — Simulateur + vérification](#34-simulateur-de-flux--cellule-de-vérification-session-4)
+
+## Question
+
+Session 4 propose **deux cellules** qui affichent des micro-batchs de snapshots Vélib' enrichis. Quelle est la différence entre la cellule **PySpark** (`writeStream` + sink `console`) et la cellule **Python pure** juste en dessous ?
+
+---
+
+## Réponse
+
+Les deux cellules répondent à la **même question métier** — « quelles stations arrivent dans le flux, avec quel taux d'occupation, et sont-elles quasi vides ? » — mais avec des **moteurs d'exécution différents**.
+
+| | Cellule PySpark (Structured Streaming) | Cellule Python pure |
+|---|---|---|
+| **Moteur** | Spark (`readStream` → JVM) | Boucle `while` + `json` (stdlib) |
+| **Source** | `stream_df` = table streaming infinie | Fichiers `*.json` dans `STREAM_SOURCE_DIR` |
+| **Enrichissement** | `withColumn`, `filter`, `select` | Fonction `enrichir_ligne()` |
+| **Déclenchement** | `.trigger(processingTime="5 seconds")` | `time.sleep(5)` dans une boucle |
+| **Fichiers / batch** | `maxFilesPerTrigger=2` (option Spark) | `nouveaux[:2]` (max 2 fichiers non lus) |
+| **Affichage** | `.format("console")`, `numRows=10` | `afficher_batch(..., max_lignes=10)` |
+| **Durée** | `time.sleep(20)` puis `q_console.stop()` | boucle 20 s puis arrêt |
+| **État / reprise** | `checkpointLocation` (obligatoire en prod) | ensemble `deja_vus` en mémoire Python |
+| **Prérequis** | `spark`, Java, simulateur actif | `STREAM_SOURCE_DIR`, simulateur actif |
+
+---
+
+## 1. Ce qui est identique (logique métier)
+
+Les deux pipelines appliquent la **même transformation** :
+
+1. ignorer les lignes avec `capacite <= 0` ;
+2. borner `velos_meca`, `velos_elec`, `bornettes_libres` à ≥ 0 ;
+3. calculer `velos_total = velos_meca + velos_elec` ;
+4. calculer `taux_occupation = round((capacite - bornettes_libres) / capacite, 4)` borné entre 0 et 1 ;
+5. définir `est_vide = taux_occupation < 0.10` ;
+6. afficher les colonnes : `station_id`, `nom_station`, `code_arr`, `horodatage`, `velos_total`, `taux_occupation`, `est_vide`.
+
+La cellule Python sert surtout à **comprendre** ce que Spark fait sous le capot avant de passer aux fenêtres glissantes et aux sinks Delta.
+
+---
+
+## 2. Cellule PySpark — le vrai Structured Streaming
+
+```python
+q_console = (
+    stream_console
+    .writeStream
+    .outputMode("append")
+    .format("console")
+    .trigger(processingTime="5 seconds")
+    .option("checkpointLocation", ...)
+    .start()
+)
+```
+
+**Caractéristiques :**
+
+- Spark traite le répertoire comme une **source de flux** : les nouveaux fichiers sont découverts automatiquement.
+- Le plan de calcul (`filter`, `withColumn`, `select`) est **distribué** et réutilisable tel quel pour un sink Delta ou Kafka.
+- Le **checkpoint** mémorise quels fichiers ont déjà été lus — en cas de redémarrage, Spark reprend sans relire tout depuis zéro.
+- C'est l'approche **production** (même modèle mental que Kafka, Kinesis, etc.).
+
+**Limite pédagogique :** le parsing de `horodatage` via schéma `TimestampType` peut afficher `NULL` si le format JSON (`2020-11-26T14:25Z`) n'est pas reconnu — la cellule Python affiche alors la **chaîne brute**, ce qui aide au diagnostic.
+
+---
+
+## 3. Cellule Python pure — simulation pédagogique
+
+```python
+while time.time() < fin:
+    time.sleep(5)
+    nouveaux = [f for f in fichiers if f not in deja_vus][:2]
+    for chemin in nouveaux:
+        for ligne in lire_fichier_json(chemin):
+            enrichir_ligne(ligne)
+    afficher_batch(...)
+```
+
+**Caractéristiques :**
+
+- Pas de JVM, pas de SparkSession : uniquement `json`, `pathlib`, `time`.
+- La « source » est simulée à la main : lister le dossier, prendre les fichiers non vus, les marquer dans un `set`.
+- **Aucune tolérance aux pannes** : si le kernel redémarre, `deja_vus` est perdu.
+- **Non scalable** : tout tourne sur le driver Python, fichier par fichier.
+
+Utile pour **déboguer** le simulateur et vérifier l'enrichissement **sans** lancer une requête Spark.
+
+---
+
+## 4. Schéma comparatif
+
+```
+Simulateur (terminal)
+        │
+        ▼
+ data/output/stream_input/*.json
+        │
+        ├──────────────────────────────┬──────────────────────────────
+        ▼                              ▼
+ PySpark readStream              Boucle Python
+ (table infinie)                 (glob + json.loads)
+        │                              │
+        ▼                              ▼
+ withColumn / filter              enrichir_ligne()
+        │                              │
+        ▼                              ▼
+ writeStream.console              print Batch: N
+ (checkpoint disque)              (deja_vus en RAM)
+```
+
+---
+
+## 5. Quand utiliser laquelle ?
+
+| Objectif | Cellule à privilégier |
+|---|---|
+| Comprendre l'enrichissement ligne à ligne | **Python pure** |
+| Apprendre Structured Streaming (checkpoint, trigger, sink) | **PySpark** |
+| Préparer fenêtres glissantes / Delta en aval | **PySpark** (même `stream_df`) |
+| Vérifier que le simulateur écrit bien des JSON | **Python pure** ou cellule §2.2 |
+
+---
+
+## Synthèse
+
+| En une phrase | |
+|---|---|
+| **PySpark** | moteur de streaming distribué, checkpoint, modèle production |
+| **Python pur** | même logique métier, exécution manuelle pour comprendre le flux |
+
+Les deux cellules sont **complémentaires** : Python explique *quoi* est calculé ; PySpark montre *comment* Spark industrialise ce calcul en flux continu.

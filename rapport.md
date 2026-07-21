@@ -25,6 +25,9 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 16. [Spark SQL : distribution des statuts par arrondissement](#16-spark-sql--distribution-des-statuts-par-arrondissement)
 17. [`SHOW VIEWS` — vérifier qu'une vue temporaire est enregistrée](#17-show-views--vérifier-quune-vue-temporaire-est-enregistrée)
 18. [`nullable = true` dans un schéma Spark](#18-nullable--true-dans-un-schéma-spark)
+19. [Alias SQL : que signifie `d.station_id` ?](#19-alias-sql--que-signifie-dstation_id-)
+20. [`LEFT ANTI JOIN` — exclure les lignes qui matchent](#20-left-anti-join--exclure-les-lignes-qui-matchent)
+21. [`show(truncate=False)` — afficher le texte complet](#21-showtruncatefalse--afficher-le-texte-complet)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -2280,3 +2283,398 @@ Cette condition sert à **exclure les lignes où l'arrondissement manque** avant
 |---|---|
 | `nullable = true` | la colonne peut contenir `NULL` |
 | `nullable = false` | la colonne ne doit pas contenir `NULL` |
+
+---
+
+<a id="19-alias-sql--que-signifie-dstation_id-"></a>
+
+# 19. Alias SQL : que signifie `d.station_id` ?
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — requête SQL avec `disponibilite_ts d`
+
+## Question
+
+Que signifie une écriture comme :
+
+```sql
+d.station_id
+```
+
+---
+
+## Réponse
+
+`d.station_id` désigne simplement la colonne **`station_id`** de la table ou sous-requête à laquelle on a donné l'alias **`d`**.
+
+Dans la requête, on écrit :
+
+```sql
+FROM disponibilite_ts d
+```
+
+Cela veut dire exactement :
+
+```sql
+FROM disponibilite_ts AS d
+```
+
+Autrement dit :
+
+- `disponibilite_ts` = nom complet de la table ou sous-requête ;
+- `d` = nom court temporaire utilisé dans le reste de la requête.
+
+Donc :
+
+```sql
+d.station_id
+```
+
+est équivalent à :
+
+```sql
+disponibilite_ts.station_id
+```
+
+Le `d` ne change **ni les données**, ni le **résultat** de la requête : il sert uniquement à donner un nom plus court à `disponibilite_ts`.
+
+---
+
+## Pourquoi utiliser un alias ?
+
+Les alias servent à :
+
+- **raccourcir** l'écriture ;
+- **améliorer la lisibilité** ;
+- **éviter les ambiguïtés** quand plusieurs tables ont des colonnes du même nom.
+
+Par exemple, au lieu d'écrire plusieurs fois :
+
+```sql
+disponibilite_ts.station_id
+disponibilite_ts.ts
+disponibilite_ts.nom_station
+```
+
+on peut écrire plus simplement :
+
+```sql
+d.station_id
+d.ts
+d.nom_station
+```
+
+La requête devient plus compacte, surtout quand le nom de table est long.
+
+Dans la requête du notebook, on a par exemple :
+
+```sql
+FROM disponibilite_ts d
+LEFT ANTI JOIN jours_feries jf
+    ON TO_DATE(d.ts) = jf.date_ferie
+```
+
+Ici :
+
+- `d` = alias de `disponibilite_ts`
+- `jf` = alias de `jours_feries`
+
+Donc :
+
+- `d.ts` = colonne `ts` de `disponibilite_ts`
+- `jf.date_ferie` = colonne `date_ferie` de `jours_feries`
+
+---
+
+## Sans alias
+
+La même idée, écrite sans alias, serait plus longue :
+
+```sql
+SELECT disponibilite_ts.station_id
+FROM disponibilite_ts
+LEFT ANTI JOIN jours_feries
+    ON TO_DATE(disponibilite_ts.ts) = jours_feries.date_ferie
+```
+
+Le résultat est le même, mais l'écriture est plus lourde.
+
+On ajoute donc `d` pour avoir un **nom court temporaire** dans la requête, pas pour modifier le calcul.
+
+---
+
+## Synthèse
+
+| Écriture | Signification |
+|---|---|
+| `d.station_id` | colonne `station_id` de la table aliasée `d` |
+| `jf.date_ferie` | colonne `date_ferie` de la table aliasée `jf` |
+
+Les alias SQL sont donc simplement des **noms courts temporaires** pour référencer plus facilement les tables dans une requête. Ils améliorent surtout la lisibilité et n'ont aucun impact sur les données retournées.
+
+---
+
+<a id="20-left-anti-join--exclure-les-lignes-qui-matchent"></a>
+
+# 20. `LEFT ANTI JOIN` — exclure les lignes qui matchent
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — exclusion des jours fériés dans une requête SQL
+
+## Question
+
+Que signifie :
+
+```sql
+LEFT ANTI JOIN jours_feries jf
+```
+
+---
+
+## Réponse
+
+`LEFT ANTI JOIN` signifie :
+
+**« garder uniquement les lignes de gauche qui n'ont aucune correspondance dans la table de droite »**.
+
+Dans la requête du notebook :
+
+```sql
+FROM disponibilite_ts d
+LEFT ANTI JOIN jours_feries jf
+    ON TO_DATE(d.ts) = jf.date_ferie
+```
+
+cela veut dire :
+
+- on part de `disponibilite_ts` ;
+- on compare chaque date de snapshot à la table `jours_feries` ;
+- si la date correspond à un jour férié, la ligne est **exclue** ;
+- si elle ne correspond à aucun jour férié, la ligne est **conservée**.
+
+Autrement dit :
+
+**on garde les disponibilités sauf celles qui tombent un jour férié**.
+
+---
+
+## Intuition
+
+`LEFT ANTI JOIN` est un **filtre par absence de correspondance**.
+
+Comparaison rapide :
+
+| Jointure | Effet |
+|---|---|
+| `INNER JOIN` | garde les lignes qui matchent |
+| `LEFT JOIN` | garde toutes les lignes de gauche, avec complément à droite si ça match |
+| `LEFT ANTI JOIN` | garde seulement les lignes de gauche qui **ne matchent pas** |
+
+---
+
+## Exemple simple
+
+Supposons :
+
+### Table `disponibilite_ts`
+
+| date |
+|---|
+| `2023-05-01` |
+| `2023-05-02` |
+| `2023-05-08` |
+
+### Table `jours_feries`
+
+| date_ferie |
+|---|
+| `2023-05-01` |
+| `2023-05-08` |
+
+Avec :
+
+```sql
+LEFT ANTI JOIN jours_feries jf
+ON TO_DATE(d.ts) = jf.date_ferie
+```
+
+le résultat garde uniquement :
+
+| date |
+|---|
+| `2023-05-02` |
+
+car `2023-05-01` et `2023-05-08` existent dans la table `jours_feries`.
+
+---
+
+## Pourquoi l'utiliser ici ?
+
+Dans ce notebook, l'objectif est d'étudier les stations en rupture **hors jours fériés**.
+
+`LEFT ANTI JOIN` est très adapté pour cela car il exprime directement :
+
+**« retire de `disponibilite_ts` toutes les lignes dont la date apparaît dans `jours_feries` »**
+
+Sans cette jointure, il faudrait écrire une logique plus longue avec `NOT IN` ou une `LEFT JOIN` suivie d'un test `IS NULL`.
+
+---
+
+## Synthèse
+
+| Expression | Signification |
+|---|---|
+| `LEFT ANTI JOIN` | garder les lignes de gauche sans correspondance à droite |
+| dans ce projet | exclure les snapshots qui tombent un jour férié |
+
+---
+
+<a id="21-showtruncatefalse--afficher-le-texte-complet"></a>
+
+# 21. `show(truncate=False)` — afficher le texte complet
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — affichage des résultats SQL avec `df_q1.show(truncate=False)`
+
+## Question
+
+Que fait le paramètre `truncate=False` dans `df.show()` ?
+
+```python
+df_q1.show(truncate=False)
+```
+
+---
+
+## Réponse
+
+Dans Spark, `truncate=False` est utilisé avec `show()` pour dire :
+
+**« N'abandonne pas l'affichage des chaînes de caractères, montre-les en entier. »**
+
+Par défaut, Spark **tronque** les colonnes texte longues pour garder un affichage compact dans le notebook.
+
+---
+
+## Comportement par défaut
+
+```python
+df.show()
+```
+
+Si le DataFrame contient une longue description :
+
+| nom | description |
+|---|---|
+| Alice | Ceci est une très longue description qui contient beaucoup de texte... |
+
+Spark affiche par défaut :
+
+```text
++-----+--------------------+
+|nom  |description         |
++-----+--------------------+
+|Alice|Ceci est une trè... |
++-----+--------------------+
+```
+
+Il **coupe** le texte.
+
+---
+
+## Avec `truncate=False`
+
+```python
+df.show(truncate=False)
+```
+
+Résultat :
+
+```text
++-----+--------------------------------------------------------------+
+|nom  |description                                                   |
++-----+--------------------------------------------------------------+
+|Alice|Ceci est une très longue description qui contient beaucoup de texte...|
++-----+--------------------------------------------------------------+
+```
+
+Cette fois, tout le contenu est affiché.
+
+---
+
+## Pourquoi le paramètre s'appelle `truncate` ?
+
+En anglais :
+
+- **truncate** = tronquer, couper
+
+Donc :
+
+| Paramètre | Effet |
+|---|---|
+| `truncate=True` (défaut) | coupe les longues chaînes |
+| `truncate=False` | n'en coupe aucune |
+
+---
+
+## Exemple concret
+
+```python
+data = [
+    ("Alice", "Bonjour je suis développeuse Spark et je travaille sur un très gros projet Big Data.")
+]
+
+df = spark.createDataFrame(data, ["nom", "bio"])
+```
+
+**Sans `truncate=False` :**
+
+```python
+df.show()
+```
+
+```text
++-----+--------------------+
+|nom  |bio                 |
++-----+--------------------+
+|Alice|Bonjour je suis ... |
++-----+--------------------+
+```
+
+**Avec `truncate=False` :**
+
+```python
+df.show(truncate=False)
+```
+
+```text
++-----+----------------------------------------------------------------------------------------+
+|nom  |bio                                                                                     |
++-----+----------------------------------------------------------------------------------------+
+|Alice|Bonjour je suis développeuse Spark et je travaille sur un très gros projet Big Data.    |
++-----+----------------------------------------------------------------------------------------+
+```
+
+---
+
+## Autre utilisation fréquente
+
+On voit souvent :
+
+```python
+df.show(20, truncate=False)
+```
+
+Cela signifie :
+
+- `20` → afficher **20 lignes**
+- `truncate=False` → afficher le **contenu complet** des colonnes, sans le couper
+
+Dans le notebook Session 3, `df_q1.show(truncate=False)` est utile pour lire en entier les noms de stations Vélib', qui peuvent être longs.
+
+---
+
+## Synthèse
+
+| Écriture | Signification |
+|---|---|
+| `df.show()` | affichage compact, texte tronqué |
+| `df.show(truncate=False)` | affichage complet des chaînes |
+| `df.show(20, truncate=False)` | 20 lignes, texte non tronqué |

@@ -1,6 +1,7 @@
 pandas 
 requests
-pyspark==3.5.0
+pyspark>=3.5.3,<3.6
+delta-spark==3.2.1
 jupyter 
 findspark
 tqdm

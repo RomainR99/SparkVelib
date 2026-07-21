@@ -2,7 +2,8 @@
 
 Notes et explications des notebooks Spark du projet ClimaCity Paris :
 - `Spark_DIA3_Session_1.ipynb` — API RDD
-- `Spark_DIA3_Session_2.ipynb` — API DataFrame (à partir de la §11)
+- `Spark_DIA3_Session_2.ipynb` — API DataFrame (§11–§12)
+- `Spark_DIA3_Session_3.ipynb` — Spark SQL, Delta Lake (à partir de la §13)
 
 ## Sommaire
 
@@ -18,6 +19,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
 11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
 12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
+13. [Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1471,3 +1473,245 @@ Parquet est privilégié en Big Data parce qu'il :
 5. **est donc beaucoup plus performant** sur de très grands volumes que les formats texte (CSV, JSON).
 
 C'est pour ces raisons que, dans la plupart des projets Spark en production, on utilise le CSV uniquement pour **importer** les données, puis on les convertit rapidement en **Parquet** avant de lancer les analyses.
+
+---
+
+<a id="13-delta-lake-et-le-package-delta-spark"></a>
+
+# 13. Delta Lake et le package `delta-spark`
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — Spark SQL, Delta Lake, `MERGE INTO`, time travel
+
+## Question
+
+Pourquoi installer `delta-spark` alors que Spark sait déjà lire et écrire du **Parquet** ?
+
+---
+
+## Réponse
+
+Le package **`delta-spark`** permet à Spark de lire, écrire et gérer des tables au format **Delta Lake**.
+
+Delta Lake est une **couche au-dessus de Parquet** qui ajoute des fonctionnalités essentielles pour les pipelines Big Data : transactions, mises à jour, historique et time travel.
+
+---
+
+## Sans `delta-spark` — Parquet seul
+
+Écriture :
+
+```python
+df.write.parquet("data/")
+```
+
+Relecture :
+
+```python
+df = spark.read.parquet("data/")
+```
+
+**Limites du Parquet brut :**
+
+- pas d'historique des modifications ;
+- pas de transactions ;
+- pas d'`UPDATE` ou `DELETE` simples ;
+- risque de fichiers **incohérents** si un job échoue en pleine écriture.
+
+---
+
+## Avec `delta-spark` — Delta Lake
+
+Écriture :
+
+```python
+df.write.format("delta").save("data/")
+```
+
+Relecture :
+
+```python
+df = spark.read.format("delta").load("data/")
+```
+
+Structure du dossier :
+
+```
+data/
+│
+├── part-0000.parquet
+├── part-0001.parquet
+├── part-0002.parquet
+└── _delta_log/
+```
+
+Le dossier **`_delta_log`** est la grande différence : il contient un **journal** de toutes les modifications de la table (versions, métadonnées, opérations).
+
+---
+
+## Les principaux avantages
+
+### 1. Transactions ACID
+
+Si plusieurs jobs écrivent dans la même table en parallèle :
+
+```
+Utilisateur A ──┐
+                  ├── Table Delta (cohérente)
+Utilisateur B ──┘
+```
+
+Delta garantit que les données restent **cohérentes**. Avec un simple dossier Parquet, deux écritures simultanées peuvent produire des fichiers **incomplets** ou corrompus.
+
+### 2. UPDATE
+
+En Parquet : il faut souvent **réécrire tout le dataset**.
+
+Avec Delta :
+
+```python
+from delta.tables import DeltaTable
+
+table = DeltaTable.forPath(spark, "data")
+
+table.update(
+    condition="ville = 'Paris'",
+    set={"ville": "'PARIS'"},
+)
+```
+
+### 3. DELETE
+
+```python
+table.delete("age < 18")
+```
+
+En Parquet, il faudrait relire tout le fichier, filtrer, puis tout réécrire.
+
+### 4. MERGE (UPSERT)
+
+Très utile pour les **mises à jour incrémentales** (ETL quotidien) :
+
+```python
+table.alias("t").merge(
+    nouveaux.alias("n"),
+    "t.id = n.id",
+)
+```
+
+Permet de :
+
+- **mettre à jour** les lignes existantes ;
+- **insérer** les nouvelles.
+
+C'est l'opération centrale des pipelines ETL en production — utilisée dans la Session 3 (`MERGE INTO`).
+
+### 5. Historique des versions
+
+Chaque modification crée une **nouvelle version** de la table :
+
+```python
+table.history().show()
+```
+
+### 6. Time Travel
+
+Relire la table **telle qu'elle était** à une version antérieure :
+
+```python
+spark.read.format("delta") \
+    .option("versionAsOf", 3) \
+    .load("data/")
+```
+
+Très pratique si une mise à jour a introduit une erreur — on peut revenir en arrière sans restaurer un backup complet.
+
+### 7. Évolution du schéma
+
+Ajout d'une colonne sans réécrire toute la table :
+
+```python
+df.write \
+  .format("delta") \
+  .option("mergeSchema", "true") \
+  .save("data/")
+```
+
+Delta met à jour automatiquement le schéma dans `_delta_log`.
+
+---
+
+## Pourquoi c'est très utilisé en entreprise
+
+Les données arrivent souvent **chaque jour** :
+
+| Jour | Volume |
+|---|---|
+| Jour 1 | 100 000 clients |
+| Jour 2 | 2 000 nouveaux + 500 modifiés |
+
+| Approche | Stratégie |
+|---|---|
+| **Parquet** | réécrire souvent une grande partie des données |
+| **Delta** | mettre à jour uniquement les lignes concernées via `MERGE` |
+
+---
+
+## Pourquoi installer `delta-spark` ?
+
+Spark gère nativement CSV, JSON, Parquet et ORC — mais **pas** les fonctionnalités avancées de Delta Lake sans la bibliothèque dédiée.
+
+Installation dans le projet :
+
+```bash
+pip install delta-spark
+```
+
+Configuration dans `Spark_DIA3_Session_3.ipynb` :
+
+```python
+from delta import configure_spark_with_delta_pip
+
+spark = configure_spark_with_delta_pip(
+    SparkSession.builder.appName(APP_NAME).master("local[*]")
+).getOrCreate()
+```
+
+`configure_spark_with_delta_pip()` ajoute automatiquement les extensions Spark et les JARs Maven nécessaires (`DeltaSparkSessionExtension`, `DeltaCatalog`).
+
+---
+
+## Tableau comparatif
+
+| Fonction | Parquet | Delta Lake (`delta-spark`) |
+|---|---|---|
+| Lecture / écriture | Oui | Oui |
+| Compression | Oui | Oui |
+| Transactions ACID | Non | Oui |
+| UPDATE | Non | Oui |
+| DELETE | Non | Oui |
+| MERGE (upsert) | Non | Oui |
+| Historique des versions | Non | Oui |
+| Time Travel | Non | Oui |
+| Évolution du schéma | Limitée | Oui |
+
+---
+
+## Lien avec le projet ClimaCity
+
+| Étape | Format | Notebook |
+|---|---|---|
+| Import brut | CSV | Session 1 |
+| Stockage analytique | Parquet | Session 2 §2.8 |
+| Persistance transactionnelle | **Delta** | Session 3 (`data/output/delta/`) |
+
+---
+
+## Synthèse
+
+Workflow courant en production :
+
+1. **Importer** les données (CSV, JSON, API…)
+2. **Transformer** avec Spark (DataFrame / SQL)
+3. **Stocker en Delta Lake** via `delta-spark` — performances proches du Parquet, avec en plus les garanties d'une base de données (transactions, mises à jour, historique, time travel)
+
+Dans ce projet, le Parquet (`disponibilite_consolidee.parquet`) sert de **table analytique** produite au Jour 1 ; Delta Lake prend le relais au **Jour 2** pour les écritures incrémentales, le `MERGE INTO` et le streaming.

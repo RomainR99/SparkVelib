@@ -33,6 +33,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 24. [Alias `d` et `m` — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
 25. [Inspecter le format de `horodatage` avant `TO_TIMESTAMP`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp)
 26. [`Window.currentRow` et moyenne mobile sur 3 snapshots](#26-windowcurrentrow-et-moyenne-mobile-sur-3-snapshots)
+27. [Simulation batch MERGE — décaler un `horodatage` string](#27-simulation-batch-merge--décaler-un-horodatage-string)
+28. [`F.col("mois") == 1` — filtrer sur janvier](#28-fcolmois--1--filtrer-sur-janvier)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -3362,3 +3364,274 @@ Ces fonctions de **navigation** n'ont pas besoin de `rowsBetween` : le décalage
 | `partitionBy("station_id")` | chaque station a sa propre série temporelle |
 
 En une phrase : **`Window.currentRow` fixe la borne droite de la fenêtre sur la ligne actuelle**, ce qui permet de calculer une moyenne glissante sur les 3 derniers snapshots de chaque station.
+
+---
+
+<a id="27-simulation-batch-merge--décaler-un-horodatage-string"></a>
+
+# 27. Simulation batch MERGE — décaler un `horodatage` string
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — §1.4 Delta Lake, simulation `df_batch` avant `MERGE INTO`
+>
+> Voir aussi : [§25 — Inspecter le format de `horodatage`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp), [§13 — Delta Lake](#13-delta-lake-et-le-package-delta-spark)
+
+## Question
+
+Pour simuler de **nouvelles lignes** dans un batch Delta, on veut décaler l'horodatage de 2 ans :
+
+```python
+.withColumn("horodatage", F.col("horodatage") + F.expr("INTERVAL 2 YEARS"))
+```
+
+Pourquoi cette écriture échoue-t-elle avec :
+
+```text
+DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES
+Cannot resolve "(horodatage + INTERVAL '2' YEAR)"
+the left and right operands have incompatible types ("DOUBLE" and "INTERVAL YEAR")
+```
+
+---
+
+## Réponse
+
+`horodatage` est stocké comme **chaîne de caractères** (`2020-01-15T10:30Z`), pas comme un type datetime.
+
+On ne peut pas additionner directement une **string** et un **INTERVAL**. Il faut d'abord **parser** la chaîne en timestamp, ajouter l'intervalle, puis **reformater** en string si la table cible attend ce format.
+
+---
+
+## 1. Code corrigé du notebook
+
+```python
+# Corrections : mêmes clés (station_id, horodatage) → UPDATE au MERGE
+df_corrections = (
+    df_current
+    .filter(F.col("mois") == 1)
+    .limit(500)
+    .withColumn("taux_occupation", F.round(F.col("taux_occupation") * 0.98, 4))
+    .withColumn("source", lit("correction_batch"))
+)
+
+# Nouvelles lignes : horodatages décalés → INSERT au MERGE
+df_nouveaux = (
+    df_current
+    .filter(F.col("mois") == 1)
+    .orderBy("station_id", "horodatage")
+    .offset(500)
+    .limit(50)
+    .withColumn(
+        "horodatage",
+        F.expr(
+            "date_format("
+            "to_timestamp(horodatage, \"yyyy-MM-dd'T'HH:mm'Z'\") + INTERVAL 2 YEARS, "
+            "\"yyyy-MM-dd'T'HH:mm'Z'\""
+            ")"
+        ),
+    )
+    .withColumn("annee", lit(2022))
+    .withColumn("mois", lit(1))
+    .withColumn("source", lit("nouveau_batch"))
+)
+
+df_batch = df_corrections.unionByName(df_nouveaux).drop("source")
+```
+
+---
+
+## 2. Étapes du décalage d'horodatage
+
+```text
+"2020-01-15T10:30Z"                         ← string
+        ↓ to_timestamp(..., "yyyy-MM-dd'T'HH:mm'Z'")
+2020-01-15 10:30:00                         ← timestamp
+        ↓ + INTERVAL 2 YEARS
+2022-01-15 10:30:00                         ← timestamp
+        ↓ date_format(..., "yyyy-MM-dd'T'HH:mm'Z'")
+"2022-01-15T10:30Z"                         ← string (format Velib')
+```
+
+| Étape | Fonction | Rôle |
+|---|---|---|
+| 1 | `to_timestamp` | string → datetime |
+| 2 | `+ INTERVAL 2 YEARS` | décalage temporel |
+| 3 | `date_format` | datetime → string au format d'origine |
+
+---
+
+## 3. Pourquoi `.offset(500).limit(50)` ?
+
+Les **500 corrections** et les **50 nouvelles lignes** partent toutes deux de `mois == 1`.
+
+Sans `offset(500)`, les 50 « nouvelles » lignes seraient un **sous-ensemble** des 500 corrections : mêmes `(station_id, horodatage)` dans le batch → risque de doublons avant le `MERGE`.
+
+| Sous-ensemble | Rôle dans le MERGE |
+|---|---|
+| 500 premières lignes de janvier | `whenMatchedUpdateAll()` — taux corrigé (× 0.98) |
+| 50 lignes suivantes, horodatage +2 ans | `whenNotMatchedInsertAll()` — insertions |
+
+---
+
+## 4. `union` vs `unionByName`
+
+```python
+df_corrections.unionByName(df_nouveaux).drop("source")
+```
+
+`unionByName` aligne les colonnes **par nom**, pas par position — plus sûr quand les deux DataFrames ont la même structure mais un ordre de colonnes potentiellement différent.
+
+---
+
+## 5. Lien avec le `MERGE INTO`
+
+Le batch est ensuite fusionné dans Delta :
+
+```python
+delta_table.alias("cible").merge(
+    df_batch.alias("source"),
+    "cible.station_id = source.station_id AND cible.horodatage = source.horodatage"
+)
+.whenMatchedUpdateAll()
+.whenNotMatchedInsertAll()
+.execute()
+```
+
+| Ligne du batch | Clé `(station_id, horodatage)` | Effet |
+|---|---|---|
+| correction | existe déjà dans Delta | **UPDATE** du `taux_occupation` |
+| nouvelle (horodatage décalé) | absente de Delta | **INSERT** |
+
+---
+
+## 6. Synthèse
+
+| Problème | Solution |
+|---|---|
+| `horodatage` est une string | `to_timestamp` avant l'arithmétique temporelle |
+| conserver le format Velib' | `date_format(..., "yyyy-MM-dd'T'HH:mm'Z'")` |
+| éviter les doublons dans le batch | `offset(500)` sur les nouvelles lignes |
+| union de deux DataFrames | `unionByName` |
+
+En une phrase : **pour décaler un `horodatage` string, on passe par `to_timestamp` → `+ INTERVAL` → `date_format`** — on n'additionne jamais l'intervalle directement sur la chaîne.
+
+---
+
+<a id="28-fcolmois--1--filtrer-sur-janvier"></a>
+
+# 28. `F.col("mois") == 1` — filtrer sur janvier
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — simulation batch MERGE (`df_corrections`, `df_nouveaux`)
+>
+> Voir aussi : [§27 — Simulation batch MERGE](#27-simulation-batch-merge--décaler-un-horodatage-string)
+
+## Question
+
+Que signifie ce filtre dans la cellule de simulation ?
+
+```python
+df_current.filter(F.col("mois") == 1)
+```
+
+---
+
+## Réponse
+
+`F.col("mois") == 1` est un **filtre Spark** qui ne conserve que les lignes dont le mois calendaire vaut **1**, c'est-à-dire **janvier**.
+
+Équivalent SQL :
+
+```sql
+WHERE mois = 1
+```
+
+---
+
+## 1. Décomposition de l'expression
+
+| Morceau | Signification |
+|---|---|
+| `F` | alias de `pyspark.sql.functions` (importé en haut du notebook) |
+| `F.col("mois")` | référence à la colonne **`mois`** du DataFrame |
+| `== 1` | condition d'égalité avec la valeur **1** |
+
+On construit une **expression booléenne** (une colonne de type `boolean`) que `.filter()` utilise pour garder les lignes où le résultat est `true`.
+
+---
+
+## 2. D'où vient la colonne `mois` ?
+
+Elle est créée en **Session 2** à partir de `horodatage` lors de l'enrichissement temporel du pipeline :
+
+```python
+.withColumn("mois", F.month("ts"))
+```
+
+| Valeur de `mois` | Mois calendaire |
+|---|---|
+| 1 | janvier |
+| 2 | février |
+| … | … |
+| 12 | décembre |
+
+Dans le projet, les données couvrent **2020 et 2021** : `mois == 1` sélectionne donc les snapshots de **janvier 2020 et janvier 2021**.
+
+---
+
+## 3. Pourquoi ce filtre dans le batch MERGE ?
+
+```python
+df_corrections = (
+    df_current
+    .filter(F.col("mois") == 1)
+    .limit(500)
+    ...
+)
+
+df_nouveaux = (
+    df_current
+    .filter(F.col("mois") == 1)
+    .orderBy("station_id", "horodatage")
+    .offset(500)
+    .limit(50)
+    ...
+)
+```
+
+Objectifs :
+
+- **réduire le volume** du batch simulé (550 lignes au lieu de ~690 000) ;
+- garder un exemple **cohérent** pour le `MERGE INTO` ;
+- travailler sur un sous-ensemble homogène (même mois) avant de décaler les « nouvelles » lignes de 2 ans (`annee = 2022`, `mois = 1`).
+
+---
+
+## 4. Variantes utiles
+
+```python
+# Janvier 2020 seulement
+df_current.filter((F.col("mois") == 1) & (F.col("annee") == 2020))
+
+# Syntaxe SQL (chaîne) — équivalent
+df_current.filter("mois = 1")
+
+# Plusieurs mois
+df_current.filter(F.col("mois").isin(1, 7))
+```
+
+**Attention :** pour combiner plusieurs conditions en API DataFrame, utiliser `&` (et) ou `|` (ou) — pas `and` / `or` Python — et mettre chaque condition entre parenthèses :
+
+```python
+(F.col("mois") == 1) & (F.col("annee") == 2020)
+```
+
+---
+
+## 5. Synthèse
+
+| Écriture | Signification |
+|---|---|
+| `F.col("mois")` | colonne mois (1–12) |
+| `== 1` | janvier uniquement |
+| `.filter(...)` | ne garde que les lignes qui vérifient la condition |
+
+En une phrase : **`F.col("mois") == 1` sélectionne les observations Vélib' enregistrées en janvier** — ici pour limiter le batch de démonstration du `MERGE`.

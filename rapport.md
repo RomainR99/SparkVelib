@@ -22,6 +22,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 13. [Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
 14. [Que sont les JARs Delta ?](#14-que-sont-les-jars-delta)
 15. [Résumé d'une table : `df.count()` et `len(df.columns)`](#15-résumé-dune-table--dfcount-et-lendfcolumns)
+16. [Spark SQL : distribution des statuts par arrondissement](#16-spark-sql--distribution-des-statuts-par-arrondissement)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1979,3 +1980,161 @@ Le `:,` ajoute un séparateur de milliers pour rendre les grands nombres plus li
 ## 5. Synthèse
 
 `print(f"Table consolidée : {df.count():,} lignes  |  {len(df.columns)} colonnes")` répond en une ligne à la question : **« combien de lignes et combien de colonnes contient ma table consolidée ? »** — avant d'afficher le détail du schéma avec `df.printSchema()`.
+
+---
+
+<a id="16-spark-sql--distribution-des-statuts-par-arrondissement"></a>
+
+# 16. Spark SQL : distribution des statuts par arrondissement
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — premières requêtes SQL sur la vue `disponibilite`
+
+## Question
+
+Que fait cette requête SQL ?
+
+```sql
+SELECT
+    code_arr,
+    statut,
+    COUNT(*) AS nb_snapshots,
+    ROUND(AVG(taux_occupation), 4) AS taux_moyen,
+    ROUND(STDDEV(taux_occupation), 4) AS ecart_type
+FROM disponibilite
+WHERE code_arr IS NOT NULL
+GROUP BY code_arr, statut
+ORDER BY code_arr, statut
+```
+
+Et pourquoi y a-t-il un `4` dans `ROUND(AVG(taux_occupation), 4)` ?
+
+---
+
+## Réponse
+
+Cette requête produit, pour chaque **arrondissement** (`code_arr`) et chaque **statut** de station (`statut`), un petit résumé statistique du niveau d'occupation.
+
+Elle répond à la question : **« dans chaque arrondissement, combien de snapshots observe-t-on pour chaque statut, et quel est le taux d'occupation moyen associé ? »**
+
+---
+
+## 1. Décomposition de la requête
+
+| Élément SQL | Rôle |
+|---|---|
+| `FROM disponibilite` | lit la vue temporaire créée à partir du DataFrame Spark |
+| `WHERE code_arr IS NOT NULL` | retire les lignes sans arrondissement renseigné |
+| `GROUP BY code_arr, statut` | regroupe les données par arrondissement et par statut |
+| `COUNT(*)` | compte le nombre de lignes dans chaque groupe |
+| `AVG(taux_occupation)` | calcule le taux d'occupation moyen du groupe |
+| `STDDEV(taux_occupation)` | mesure la dispersion autour de la moyenne |
+| `ORDER BY code_arr, statut` | trie le résultat pour un affichage lisible |
+
+---
+
+## 2. Signification métier des colonnes calculées
+
+Pour un groupe donné, par exemple :
+
+- `code_arr = 15`
+- `statut = 'plein'`
+
+Spark calcule :
+
+- **`nb_snapshots`** : combien de snapshots de stations du 15e arrondissement ont le statut `plein` ;
+- **`taux_moyen`** : la moyenne des valeurs de `taux_occupation` dans ce groupe ;
+- **`ecart_type`** : la variabilité du taux d'occupation dans ce groupe.
+
+Si `taux_moyen` est proche de `1.0`, cela signifie que les stations de ce groupe sont en moyenne très occupées.
+
+Si `ecart_type` est faible, les valeurs sont proches les unes des autres ; s'il est élevé, l'occupation varie davantage selon les snapshots.
+
+---
+
+## 3. Pourquoi `ROUND(..., 4)` ?
+
+En SQL Spark, `ROUND(valeur, n)` signifie :
+
+**« arrondir `valeur` à `n` chiffres après la virgule »**.
+
+Donc :
+
+```sql
+ROUND(AVG(taux_occupation), 4)
+```
+
+veut dire :
+
+1. calculer la moyenne avec `AVG(taux_occupation)` ;
+2. arrondir le résultat final à **4 décimales**.
+
+Exemples :
+
+| Expression | Résultat |
+|---|---|
+| `AVG(taux_occupation)` | `0.673891234...` |
+| `ROUND(AVG(taux_occupation), 4)` | `0.6739` |
+| `ROUND(AVG(taux_occupation), 2)` | `0.67` |
+
+Le **`4` n'a aucun rôle statistique** : il ne change pas la logique de `AVG`, il sert seulement à rendre l'affichage plus lisible dans le notebook.
+
+La même logique s'applique à :
+
+```sql
+ROUND(STDDEV(taux_occupation), 4)
+```
+
+---
+
+## 4. Pourquoi utiliser `STDDEV` ici ?
+
+La moyenne seule ne suffit pas toujours.
+
+Deux groupes peuvent avoir :
+
+- le même `taux_moyen`
+- mais une variabilité très différente
+
+Exemple simplifié :
+
+| Groupe | Valeurs | Moyenne | Écart-type |
+|---|---|---|---|
+| A | `0.50, 0.51, 0.49` | `0.50` | faible |
+| B | `0.10, 0.90, 0.50` | `0.50` | élevé |
+
+Dans les deux cas, la moyenne vaut `0.50`, mais le groupe B est beaucoup plus instable.
+
+`STDDEV(taux_occupation)` ajoute donc une information de **dispersion** utile pour l'analyse.
+
+---
+
+## 5. Résultat attendu
+
+Le résultat affiché ressemble à une table du type :
+
+```text
++--------+--------+------------+----------+----------+
+|code_arr|statut  |nb_snapshots|taux_moyen|ecart_type|
++--------+--------+------------+----------+----------+
+|1       |normal  |...         |0.54      |0.18      |
+|1       |plein   |...         |0.97      |0.03      |
+|1       |vide    |...         |0.04      |0.02      |
+...
+```
+
+Chaque ligne résume donc un couple :
+
+- **un arrondissement**
+- **un statut**
+
+---
+
+## 6. Synthèse
+
+Cette requête Spark SQL regroupe les snapshots par **arrondissement** et **statut**, puis calcule :
+
+1. le **nombre d'observations** ;
+2. le **taux d'occupation moyen** ;
+3. l'**écart-type** de l'occupation.
+
+Le `4` dans `ROUND(..., 4)` signifie simplement : **afficher 4 décimales après la virgule**.

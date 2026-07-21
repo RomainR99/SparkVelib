@@ -32,6 +32,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 23. [`nb_snapshots` — nombre d'observations, pas de bornes vides](#23-nb_snapshots--nombre-dobservations-pas-de-bornes-vides)
 24. [Alias `d` et `m` — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
 25. [Inspecter le format de `horodatage` avant `TO_TIMESTAMP`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp)
+26. [`Window.currentRow` et moyenne mobile sur 3 snapshots](#26-windowcurrentrow-et-moyenne-mobile-sur-3-snapshots)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -3227,3 +3228,137 @@ yyyy-MM-dd 'T' HH:mm 'Z'
 | Météo (`meteo`) | `2020-01-01T00:00` | `"yyyy-MM-dd'T'HH:mm"` |
 
 En une phrase : **on inspecte d'abord `horodatage` avec `show(truncate=False)`, puis on construit le pattern en recopiant la structure de la chaîne** — les deux sources du projet n'ont pas le même suffixe (`Z` ou non).
+
+---
+
+<a id="26-windowcurrentrow-et-moyenne-mobile-sur-3-snapshots"></a>
+
+# 26. `Window.currentRow` et moyenne mobile sur 3 snapshots
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — §1.3 Fonctions de fenêtrage (`df_avec_lag`)
+
+## Question
+
+Que signifie `Window.currentRow` dans :
+
+```python
+fenetre_moy_mobile_3 = (
+    Window
+    .partitionBy("station_id")
+    .orderBy("horodatage")
+    .rowsBetween(-2, Window.currentRow)
+)
+```
+
+Et en quoi cela diffère-t-il de `fenetre_station` utilisée pour `LAG` / `LEAD` ?
+
+---
+
+## Réponse
+
+`Window.currentRow` désigne **la ligne en cours de traitement** dans une fenêtre analytique Spark — l'équivalent de « la ligne sur laquelle on calcule la valeur maintenant ».
+
+Dans `rowsBetween(-2, Window.currentRow)`, Spark définit une **fenêtre glissante en nombre de lignes** (pas en temps) :
+
+| Paramètre | Signification |
+|---|---|
+| `-2` | 2 lignes **avant** la ligne courante |
+| `Window.currentRow` | la ligne **courante** |
+
+La fenêtre couvre donc **3 lignes** : les 2 précédentes + la ligne actuelle.
+
+---
+
+## 1. Code du notebook
+
+```python
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+
+fenetre_station = (
+    Window
+    .partitionBy("station_id")
+    .orderBy("horodatage")
+)
+
+fenetre_moy_mobile_3 = (
+    Window
+    .partitionBy("station_id")
+    .orderBy("horodatage")
+    .rowsBetween(-2, Window.currentRow)  # courant + 2 précédents = 3 snapshots
+)
+
+df_avec_lag = (
+    df
+    .select("station_id", "nom_station", "horodatage", "taux_occupation")
+    .withColumn("taux_precedent", F.lag("taux_occupation", 1).over(fenetre_station))
+    .withColumn("taux_suivant", F.lead("taux_occupation", 1).over(fenetre_station))
+    .withColumn("moy_mobile_3", F.round(F.avg("taux_occupation").over(fenetre_moy_mobile_3), 4))
+)
+```
+
+---
+
+## 2. Exemple pas à pas
+
+Pour une même station, triée par `horodatage` :
+
+| Ligne | `taux_occupation` | Fenêtre (-2 → current) | `moy_mobile_3` |
+|---|---|---|---|
+| 1 | 0.10 | [0.10] | 0.10 |
+| 2 | 0.08 | [0.10, 0.08] | 0.09 |
+| 3 | 0.06 | [0.10, 0.08, 0.06] | 0.08 |
+| 4 | 0.12 | [0.08, 0.06, 0.12] | 0.087 |
+
+À la ligne 4, Spark « oublie » la ligne 1 : la fenêtre ne garde que **3 snapshots**.
+
+---
+
+## 3. `Window.currentRow` vs borne numérique
+
+```python
+.rowsBetween(-2, Window.currentRow)                          # 2 lignes avant → ligne courante
+.rowsBetween(-2, 0)                                          # équivalent (0 = ligne courante)
+.rowsBetween(Window.unboundedPreceding, Window.currentRow)   # du début → ligne courante (cumul)
+```
+
+| Constante | Rôle |
+|---|---|
+| `Window.currentRow` | borne dynamique « ici et maintenant » |
+| `Window.unboundedPreceding` | depuis le début de la partition |
+| `Window.unboundedFollowing` | jusqu'à la fin de la partition |
+
+---
+
+## 4. Pourquoi deux fenêtres ?
+
+| Fenêtre | Usage | Suffisant pour… |
+|---|---|---|
+| `fenetre_station` (`partitionBy` + `orderBy`) | `LAG`, `LEAD` | 1 ligne avant / 1 ligne après |
+| `fenetre_moy_mobile_3` (+ `rowsBetween`) | `AVG` sur 3 lignes | moyenne mobile |
+
+`partitionBy("station_id").orderBy("horodatage")` seul ne dit pas **combien** de lignes inclure dans une agrégat — d'où `rowsBetween(-2, Window.currentRow)` pour une moyenne sur **3 snapshots**.
+
+---
+
+## 5. Rappel : `LAG` et `LEAD`
+
+| Fonction | Signification |
+|---|---|
+| `F.lag("taux_occupation", 1)` | valeur du snapshot **précédent** (NULL sur la 1ʳᵉ ligne de la station) |
+| `F.lead("taux_occupation", 1)` | valeur du snapshot **suivant** (NULL sur la dernière ligne) |
+
+Ces fonctions de **navigation** n'ont pas besoin de `rowsBetween` : le décalage est donné par le 2ᵉ argument (`1` = une ligne).
+
+---
+
+## 6. Synthèse
+
+| Terme | Signification |
+|---|---|
+| `Window.currentRow` | la ligne en cours de calcul |
+| `rowsBetween(-2, Window.currentRow)` | fenêtre de 3 lignes (2 avant + courante) |
+| `moy_mobile_3` | moyenne de `taux_occupation` sur ces 3 snapshots |
+| `partitionBy("station_id")` | chaque station a sa propre série temporelle |
+
+En une phrase : **`Window.currentRow` fixe la borne droite de la fenêtre sur la ligne actuelle**, ce qui permet de calculer une moyenne glissante sur les 3 derniers snapshots de chaque station.

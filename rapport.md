@@ -1,4 +1,4 @@
-# Rapport — Spark ClimaCity Paris (Sessions 1–3)
+# Rapport — Spark ClimaCity Paris (Sessions 1–4)
 
 Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
@@ -7,6 +7,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
 | [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
 | [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34 |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -60,6 +61,10 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 32. [`MERGE INTO` en Spark SQL — chemin absolu Delta](#32-merge-into-en-spark-sql--chemin-absolu-delta)
 33. [`DESCRIBE HISTORY` et time travel (`versionAsOf`)](#33-describe-history-et-time-travel-versionasof)
 
+### Session 4 — Structured Streaming
+
+34. [Simulateur de flux + cellule de vérification Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4)
+
 ## Parcours du pipeline (liens entre sections)
 
 ### Session 1 — RDD
@@ -107,6 +112,13 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | `ROW_NUMBER`, cumul, delta | [§27](#27-row_number--classement-par-heure) · [§28](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding) |
 | batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) |
 | time travel | [§33](#33-describe-history-et-time-travel-versionasof) |
+
+### Session 4 — Structured Streaming
+
+| Étape notebook | Section rapport |
+|---|---|
+| simulateur + vérification JSON | [§34 Simulateur Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
+| `readStream`, fenêtres, sinks | `Spark_DIA3_Session_4.ipynb` §2.3+ |
 
 ---
 
@@ -3752,3 +3764,61 @@ On agrège ensuite sur janvier 2022 (`annee = 2022 AND mois = 1`) pour comparer 
 | `.option("versionAsOf", n)` | relire la table **telle qu'elle était** à la version `n` |
 
 En une phrase : **`DESCRIBE HISTORY` identifie la version juste avant le MERGE ; `versionAsOf` permet de voyager dans le temps pour comparer les agrégats.**
+
+---
+
+<a id="34-simulateur-de-flux--cellule-de-vérification-session-4"></a>
+
+# 34. Simulateur de flux + cellule de vérification Session 4
+
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.2 Le simulateur de flux (première cellule code)
+
+## Note pratique — deux actions en parallèle
+
+Pour que la cellule **« Vérification : le simulateur tourne-t-il ? »** affiche des fichiers JSON, il faut **lancer en même temps** :
+
+1. **Dans un terminal séparé** (à la racine du projet, venv activé) — le simulateur qui **écrit** les JSON :
+
+```bash
+source .venv-spark/bin/activate
+python scripts/simulateur_flux.py --output data/output/stream_input --vitesse 3
+```
+
+2. **Dans Jupyter** — la **première cellule code** de Session 4 (§2.2), qui **compte** les fichiers dans `data/output/stream_input`.
+
+```
+Terminal                          Notebook Session 4
+────────                          ──────────────────
+simulateur_flux.py  ──écrit──→   data/output/stream_input/*.json
+       │                                    ↑
+       │                                    │
+       └──────── en continu ──────→  cellule de vérification (lit le dossier)
+```
+
+| Sans simulateur | Avec simulateur actif |
+|---|---|
+| `0 fichier(s) JSON` + message `[ATTENTION]` | `[OK] N fichier(s) JSON détecté(s)` + aperçu du dernier `snapshot_*.json` |
+
+---
+
+## Ordre recommandé
+
+1. **Prérequis** : Parquet consolidé produit en Session 2 §2.8 (`data/output/disponibilite_consolidee.parquet`).
+2. **Terminal** : lancer la commande ci-dessus et **la laisser tourner** pendant Session 4.
+3. **Notebook** : exécuter la cellule de vérification (attente 3 s, puis listing des `.json`).
+4. **Fin de séance** : `Ctrl+C` dans le terminal pour arrêter le simulateur.
+
+> **Pourquoi en parallèle ?** Structured Streaming lit un **flux continu** de fichiers. Si le simulateur est arrêté, le dossier ne reçoit plus de nouveaux JSON et les requêtes `readStream` n’ont rien à consommer.
+
+---
+
+## Synthèse
+
+| Composant | Rôle |
+|---|---|
+| `scripts/simulateur_flux.py` | rejoue le Parquet consolidé en fichiers JSON |
+| `--output data/output/stream_input` | même répertoire que `STREAM_SOURCE_DIR` |
+| `--vitesse 3` | 3 minutes d’historique simulées par seconde réelle |
+| Cellule §2.2 Session 4 | confirme que des JSON arrivent avant `readStream` |
+
+En une phrase : **lance le simulateur dans le terminal, puis exécute la cellule de vérification dans le notebook — les deux doivent tourner en même temps pour voir des JSON.**

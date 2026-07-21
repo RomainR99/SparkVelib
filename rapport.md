@@ -21,6 +21,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris :
 12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
 13. [Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
 14. [Que sont les JARs Delta ?](#14-que-sont-les-jars-delta)
+15. [Résumé d'une table : `df.count()` et `len(df.columns)`](#15-résumé-dune-table--dfcount-et-lendfcolumns)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -1889,3 +1890,92 @@ Les **JARs Delta** sont les bibliothèques Java/Scala qui fournissent à Spark l
 - **JARs Delta** côté JVM = exécution réelle des commandes Delta ;
 - sans ces JARs, Spark ne sait pas utiliser `format("delta")` ni `DeltaSparkSessionExtension` ;
 - avec eux, Spark peut gérer lecture/écriture Delta, `MERGE`, `DELETE`, historique et time travel.
+
+---
+
+<a id="15-résumé-dune-table--dfcount-et-lendfcolumns"></a>
+
+# 15. Résumé d'une table : `df.count()` et `len(df.columns)`
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — chargement de `disponibilite_consolidee.parquet`
+
+## Question
+
+Que fait cette ligne ?
+
+```python
+print(f"Table consolidée : {df.count():,} lignes  |  {len(df.columns)} colonnes")
+```
+
+---
+
+## Réponse
+
+Cette ligne affiche un **résumé rapide** de la table Vélib' chargée depuis le Parquet consolidé produit en Session 2.
+
+Exemple de sortie :
+
+```text
+Table consolidée : 690,858 lignes  |  20 colonnes
+```
+
+---
+
+## 1. Décomposition de la ligne
+
+| Partie | Signification |
+|---|---|
+| `print(...)` | affiche du texte dans le notebook |
+| `f"..."` | **f-string** : insère des valeurs Python dans le texte |
+| `df` | le DataFrame chargé depuis `disponibilite_consolidee.parquet` |
+| `df.count()` | **action Spark** : compte le nombre de lignes |
+| `:,` | formatage avec séparateur de milliers (`690858` → `690,858`) |
+| `len(df.columns)` | nombre de colonnes du DataFrame |
+| `\|` | séparateur visuel entre les deux informations |
+
+---
+
+## 2. `df.count()` est une action Spark
+
+Spark fonctionne en **évaluation paresseuse** : tant qu'on ne déclenche pas d'action, rien n'est réellement calculé.
+
+`count()` est une **action** : elle force Spark à parcourir les données (ou le cache) pour compter les lignes.
+
+Dans la cellule du notebook :
+
+```python
+df = spark.read.parquet(str(VELIB_CONSOLIDE))
+df.cache()
+df.count()   # force la mise en cache
+
+print(f"Table consolidée : {df.count():,} lignes  |  {len(df.columns)} colonnes")
+```
+
+- le **premier** `count()` matérialise le DataFrame en cache ;
+- le **second** `count()` dans le `print()` relit depuis le cache — souvent beaucoup plus rapide.
+
+---
+
+## 3. `len(df.columns)` est instantané
+
+`df.columns` renvoie la liste des noms de colonnes côté **driver** (machine qui exécute le notebook).
+
+`len(df.columns)` compte simplement cette liste — **aucun parcours des données** sur le cluster n'est nécessaire.
+
+---
+
+## 4. Le format `:,`
+
+Dans une f-string :
+
+```python
+f"{690858:,}"   # → "690,858"
+```
+
+Le `:,` ajoute un séparateur de milliers pour rendre les grands nombres plus lisibles dans les rapports et les sorties notebook.
+
+---
+
+## 5. Synthèse
+
+`print(f"Table consolidée : {df.count():,} lignes  |  {len(df.columns)} colonnes")` répond en une ligne à la question : **« combien de lignes et combien de colonnes contient ma table consolidée ? »** — avant d'afficher le détail du schéma avec `df.printSchema()`.

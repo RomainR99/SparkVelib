@@ -7,7 +7,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
 | [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
 | [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§37 |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§38 |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -67,6 +67,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 35. [Sink console PySpark vs simulation Python pure (§2.4)](#35-sink-console-pyspark-vs-simulation-python-pure-24)
 36. [Driver vs workers — rôles dans Spark](#36-driver-vs-workers--rôles-dans-spark)
 37. [Delta Spark — à quoi ça sert en Session 4 ?](#37-delta-spark--à-quoi-ça-sert-en-session-4)
+38. [Sink Delta des fenêtres glissantes (`writeStream`)](#38-sink-delta-des-fenêtres-glissantes-writestream)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -123,7 +124,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | simulateur + vérification JSON | [§34 Simulateur Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
 | sink console PySpark vs Python | [§35 Console vs Python pur](#35-sink-console-pyspark-vs-simulation-python-pure-24) |
 | Section 0 — driver, workers, Mac ARM | [§36 Driver vs workers](#36-driver-vs-workers--rôles-dans-spark) · [§10 Java arm64](#10-mac-apple-silicon--java-arm64-et-warning-psutil) |
-| `readStream`, fenêtres, sinks Delta | [§37 Delta Spark Session 4](#37-delta-spark--à-quoi-ça-sert-en-session-4) · [§13 Delta Lake](#13-delta-lake-et-le-package-delta-spark) |
+| fenêtres glissantes + sink Delta | [§38 Sink Delta fenêtres](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§37 Delta Spark](#37-delta-spark--à-quoi-ça-sert-en-session-4) |
 
 ---
 
@@ -4125,3 +4126,135 @@ La Section 0 appelle `configure_spark_with_delta_pip()` et lève une erreur expl
 | streaming fragile en cas d'échec | sink `.format("delta")` + checkpoint = écriture continue fiable |
 
 En une phrase : **Spark calcule ; Delta Spark garantit que ce qui est écrit (batch ou flux) reste cohérent, versionné et exploitable en production.**
+
+---
+
+<a id="38-sink-delta-des-fenêtres-glissantes-writestream"></a>
+
+# 38. Sink Delta des fenêtres glissantes (`writeStream`)
+
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.5 Fenêtres glissantes, écriture Delta  
+> Voir aussi : [§37 — Delta Spark en Session 4](#37-delta-spark--à-quoi-ça-sert-en-session-4)
+
+## Question
+
+Que fait le bloc `writeStream` qui démarre `q_fenetres` ? À quoi servent `outputMode("append")`, le checkpoint, le trigger et `queryName` ?
+
+---
+
+## Réponse
+
+Ce bloc **lance une requête Structured Streaming** qui écrit en continu les **agrégats fenêtrés par arrondissement** (`df_fenetre_arr`) dans une **table Delta** nommée `fenetres_arrondissement`.
+
+---
+
+## 1. Contexte — d'où vient `df_fenetre_arr` ?
+
+Avant ce sink, le notebook construit un DataFrame streaming enrichi :
+
+- source : fichiers JSON du simulateur (`readStream.json`) ;
+- `watermark("horodatage", "5 minutes")` ;
+- `groupBy(code_arr, window(horodatage, "10 minutes", "2 minutes"))` ;
+- agrégats : `avg(velos_total)`, `count(*)`.
+
+Colonnes produites : `code_arr`, `fenetre_debut`, `fenetre_fin`, `velos_moyens`, `nb_mesures`.
+
+Le bloc `writeStream` ne recalcule pas ces fenêtres : il **branche un sink** sur ce plan déjà défini.
+
+---
+
+## 2. Code (cellule notebook)
+
+```python
+path_fenetres = str(DELTA_DISPONIBLE.parent / "fenetres_arrondissement")
+_checkpoint_fenetres = Path(STREAM_CHECKPOINT) / "fenetres_arr"
+_checkpoint_fenetres.mkdir(parents=True, exist_ok=True)
+
+if stop_streaming_query("fenetres_arrondissement"):
+    print("Requête précédente 'fenetres_arrondissement' arrêtée — redémarrage.")
+
+q_fenetres = (
+    df_fenetre_arr
+    .writeStream
+    .outputMode("append")
+    .format("delta")
+    .option("checkpointLocation", str(_checkpoint_fenetres))
+    .trigger(processingTime="10 seconds")
+    .queryName("fenetres_arrondissement")
+    .start(path_fenetres)
+)
+```
+
+---
+
+## 3. Ligne par ligne
+
+| Élément | Rôle |
+|---|---|
+| `path_fenetres` | Dossier Delta de sortie (`data/output/delta/fenetres_arrondissement`) |
+| `_checkpoint_fenetres` | Dossier checkpoint (`data/output/checkpoints/fenetres_arr`) |
+| `stop_streaming_query(...)` | Évite l'erreur « query with that name is already active » en réexécution de cellule |
+| `.writeStream` | Transforme le plan streaming en requête d'écriture continue |
+| `.outputMode("append")` | N'écrit que les **nouvelles lignes** (fenêtres fermées grâce au watermark) |
+| `.format("delta")` | Sink **Delta Lake** (transactions ACID, relecture batch possible) |
+| `.option("checkpointLocation", ...)` | Mémorise offsets, watermark et état pour **reprise après panne** |
+| `.trigger(processingTime="10 seconds")` | Micro-batch toutes les 10 secondes |
+| `.queryName("fenetres_arrondissement")` | Nom affiché dans `spark.streams.active` et les logs |
+| `.start(path_fenetres)` | Démarre la requête en arrière-plan ; retourne `q_fenetres` |
+
+---
+
+## 4. Schéma du flux
+
+```
+fichiers JSON (stream_input)
+        ↓
+   readStream + enrichissement
+        ↓
+   fenêtres glissantes (df_fenetre_arr)
+        ↓
+   writeStream → Delta (fenetres_arrondissement)
+        +
+   checkpoint (état / reprise)
+```
+
+---
+
+## 5. Warning `spark.sql.adaptive.enabled`
+
+Message fréquent au démarrage :
+
+```
+WARN ResolveWriteToStream: spark.sql.adaptive.enabled is not supported in streaming ...
+```
+
+C'est **normal** : l'optimiseur adaptatif (batch) ne s'applique pas au streaming. Spark le désactive automatiquement — ce n'est pas une erreur bloquante.
+
+---
+
+## 6. Erreur fréquente — nom de requête déjà actif
+
+```
+IllegalArgumentException: Cannot start query with name fenetres_arrondissement
+as a query with that name is already active in this SparkSession
+```
+
+**Cause :** la cellule a été relancée alors que `q_fenetres` tournait encore.
+
+**Solutions :**
+
+- réexécuter la Section 0 puis la cellule (helper `stop_streaming_query`) ;
+- ou arrêter manuellement : `spark.streams.active` puis `q.stop()` sur la requête concernée ;
+- ou exécuter la cellule §2.8 « Arrêt propre des requêtes ».
+
+---
+
+## Synthèse
+
+| En une phrase | |
+|---|---|
+| **`writeStream` + Delta** | écriture continue et fiable des fenêtres par arrondissement |
+| **Checkpoint** | reprise sans tout relire |
+| **`append` + watermark** | seules les fenêtres **fermées** sont persistées |
+
+En une phrase : **toutes les 10 s, Spark traite les nouveaux snapshots, calcule les fenêtres par arrondissement, et ajoute les résultats finalisés dans une table Delta, en mémorisant sa progression dans le checkpoint.**

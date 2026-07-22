@@ -1,13 +1,16 @@
 # QCM — Spark ClimaCity Paris (Sessions 1 à 4)
 
-**Version formateur** — avec corrections  
-**Étudiants :** voir [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé)
+**Version étudiant** — sans corrections  
+**Formateur :** voir [`qcm-test.md`](qcm-test.md) (corrigé)
 
 **Projet :** Vélib' Paris · PySpark · Delta Lake · Structured Streaming  
 **Références :** [`rapport.md`](rapport.md) · notebooks `Spark_DIA3_Session_1` à `4`
 
 > **Mode d'emploi :** une seule bonne réponse par question (sauf indication contraire).  
-> Les corrections sont en fin de document.
+> Cochez la lettre choisie sur la grille de réponses en fin de document.
+
+**Nom :** _________________________________  
+**Date :** _________________________________
 
 ---
 
@@ -303,7 +306,7 @@ Delta Lake + checkpoint en streaming garantissent surtout :
 
 ---
 
-## Barème suggéré
+## Barème
 
 | Session | Questions | Points (1 pt / question) |
 |---|---|---|
@@ -312,38 +315,22 @@ Delta Lake + checkpoint en streaming garantissent surtout :
 | Session 3 | Q13–Q22 | 10 |
 | Session 4 | Q23–Q32 | 10 |
 | Bonus | Q33–Q34 | 2 |
-| **Total** | **34 questions** | **34 points** |
+| **Total** | **34 questions** | **/ 34** |
 
 ---
 
-## Corrections
+## Grille de réponses
 
-| Q | Réponse | Q | Réponse |
-|---|---|---|---|
-| 1 | **B** | 18 | **B** |
-| 2 | **B** | 19 | **A** |
-| 3 | **B** | 20 | **A** |
-| 4 | **B** | 21 | **B** |
-| 5 | **B** | 22 | **B** |
-| 6 | **B** | 23 | **D** |
-| 7 | **B** | 24 | **B** |
-| 8 | **B** | 25 | **B** |
-| 9 | **B** | 26 | **B** |
-| 10 | **B** | 27 | **B** |
-| 11 | **B** | 28 | **A** |
-| 12 | **B** | 29 | **B** |
-| 13 | **B** | 30 | **B** |
-| 14 | **B** | 31 | **B** |
-| 15 | **B** | 32 | **B** |
-| 16 | **B** | 33 | **B** |
-| 17 | **B** | 34 | **B** |
+| Q | A/B/C/D | Q | A/B/C/D | Q | A/B/C/D | Q | A/B/C/D |
+|---|---|---|---|---|---|---|---|
+| 1 | | 9 | | 17 | | 25 | |
+| 2 | | 10 | | 18 | | 26 | |
+| 3 | | 11 | | 19 | | 27 | |
+| 4 | | 12 | | 20 | | 28 | |
+| 5 | | 13 | | 21 | | 29 | |
+| 6 | | 14 | | 22 | | 30 | |
+| 7 | | 15 | | 23 | | 31 | |
+| 8 | | 16 | | 24 | | 32 | |
+| | | | | 33 | | 34 | |
 
-### Rappels clés par session
-
-**Session 1 — RDD** : transformations lazy, actions déclenchantes, partitions vs shuffle, parsing CSV, taux d'occupation, Mac ARM.
-
-**Session 2 — DataFrame** : `explain()`, Parquet columnar, pushdown, passage à l'échelle.
-
-**Session 3 — SQL & Delta** : ACID, `_delta_log`, jointures, fenêtres (`LAG`, `ROW_NUMBER`), `MERGE`, time travel.
-
-**Session 4 — Streaming** : `readStream` / `writeStream`, watermark, checkpoint, `foreachBatch`, driver/workers, arrêt propre.
+**Score :** ______ / 34

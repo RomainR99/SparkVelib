@@ -2,18 +2,22 @@
 
 Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
-| Notebook | Thème | Sections |
+| Notebook | Thème | Sections rapport |
 |---|---|---|
-| [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
-| [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
-| [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§42 |
+| [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | [§1–§10](#session-1--api-rdd) |
+| [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | [§11–§12](#session-2--dataframe--parquet) |
+| [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
-**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — notes : [§40 `textFile`](#40-notes-qcm--textfile-et-rddstr) · [§41 pushdown](#41-notes-qcm--predicate-pushdown-et-parquet) · [§42 `DATE_TRUNC`](#42-notes-qcm--date_trunc-et-jointure-velib-meteo) · [§43 `LAG`](#43-notes-qcm--lag-over-et-fenetre-analytique) · [§44 `ROW_NUMBER`](#44-notes-qcm--row_number-over-et-classement) · [§45 time travel](#45-notes-qcm--versionasof-et-time-travel-delta) · [§46 `DESCRIBE HISTORY`](#46-notes-qcm--describe-history-et-versions-delta) · [§47 `MERGE INTO`](#47-notes-qcm--merge-into-et-upserts-delta)
+**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes explicatives §40–§47](#annexes--notes-qcm-sessions-14)
+
+**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [QCM](#annexes--notes-qcm-sessions-14) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
 
 ## Sommaire
+
+<a id="session-1--api-rdd"></a>
 
 ### Session 1 — API RDD
 
@@ -28,10 +32,14 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 9. [Formatage d'un en-tête de tableau (`<40` / `>12`)](#9-formatage-dun-en-tête-de-tableau-40--12)
 10. [Mac Apple Silicon — Java arm64 et warning `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
 
+<a id="session-2--dataframe--parquet"></a>
+
 ### Session 2 — DataFrame & Parquet
 
 11. [Plan d'exécution : `df.explain(mode="formatted")`](#11-plan-dexécution--dfexplainmodeformatted)
 12. [Pourquoi Parquet plutôt que CSV ou JSON ?](#12-pourquoi-parquet-plutôt-que-csv-ou-json)
+
+<a id="session-3--spark-sql-bases"></a>
 
 ### Session 3 — Spark SQL (bases)
 
@@ -49,6 +57,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 24. [Alias `d` et `m` — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
 25. [Inspecter le format de `horodatage` avant `TO_TIMESTAMP`](#25-inspecter-le-format-de-horodatage-avant-to_timestamp)
 
+<a id="session-3--fenêtres-analytiques-spark-sql"></a>
+
 ### Session 3 — Fenêtres analytiques (Spark SQL)
 
 26. [Spark SQL `OVER` / `WINDOW w` — LAG, LEAD, moyenne mobile](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile)
@@ -56,12 +66,17 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 28. [Moyenne cumulée et delta entre snapshots (`ROWS UNBOUNDED PRECEDING`)](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding)
 29. [`Window.currentRow` (API PySpark) — équivalent de `ROWS BETWEEN`](#29-windowcurrentrow-api-pyspark--équivalent-de-rows-between)
 
+<a id="session-3--delta-lake-écriture-merge-time-travel"></a>
+
 ### Session 3 — Delta Lake (écriture, MERGE, time travel)
 
 30. [Simulation batch MERGE — décaler un `horodatage` string](#30-simulation-batch-merge--décaler-un-horodatage-string)
 31. [`F.col("mois") == 1` — filtrer sur janvier](#31-fcolmois--1--filtrer-sur-janvier)
 32. [`MERGE INTO` en Spark SQL — chemin absolu Delta](#32-merge-into-en-spark-sql--chemin-absolu-delta)
 33. [`DESCRIBE HISTORY` et time travel (`versionAsOf`)](#33-describe-history-et-time-travel-versionasof)
+39. [Transactions ACID — pourquoi Delta Lake plutôt que Parquet seul ?](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul)
+
+<a id="session-4--structured-streaming"></a>
 
 ### Session 4 — Structured Streaming
 
@@ -70,7 +85,22 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 36. [Driver vs workers — rôles dans Spark](#36-driver-vs-workers--rôles-dans-spark)
 37. [Delta Spark — à quoi ça sert en Session 4 ?](#37-delta-spark--à-quoi-ça-sert-en-session-4)
 38. [Sink Delta des fenêtres glissantes (`writeStream`)](#38-sink-delta-des-fenêtres-glissantes-writestream)
-39. [Transactions ACID — pourquoi Delta Lake plutôt que Parquet seul ?](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul)
+
+<a id="annexes--notes-qcm-sessions-14"></a>
+
+### Annexes — Notes QCM (Sessions 1–4)
+
+| QCM | Question (résumé) | Note |
+|---|---|---|
+| Q8 | `textFile()` → type de RDD | [§40](#40-notes-qcm--textfile-et-rddstr) |
+| Q11 | predicate pushdown Parquet | [§41](#41-notes-qcm--predicate-pushdown-et-parquet) |
+| Q16 | `DATE_TRUNC` jointure Vélib' × météo | [§42](#42-notes-qcm--date_trunc-et-jointure-velib-meteo) |
+| Q17 | `LAG(...) OVER` | [§43](#43-notes-qcm--lag-over-et-fenetre-analytique) |
+| Q18 | `ROW_NUMBER() OVER` | [§44](#44-notes-qcm--row_number-over-et-classement) |
+| Q19 | time travel `versionAsOf` | [§45](#45-notes-qcm--versionasof-et-time-travel-delta) |
+| Q20 | `DESCRIBE HISTORY` | [§46](#46-notes-qcm--describe-history-et-versions-delta) |
+| Q21 | `MERGE INTO` upserts | [§47](#47-notes-qcm--merge-into-et-upserts-delta) |
+
 40. [Notes QCM — `textFile` et `RDD[str]`](#40-notes-qcm--textfile-et-rddstr)
 41. [Notes QCM — predicate pushdown et Parquet](#41-notes-qcm--predicate-pushdown-et-parquet)
 42. [Notes QCM — `DATE_TRUNC` et jointure Vélib' × météo](#42-notes-qcm--date_trunc-et-jointure-velib-meteo)
@@ -80,7 +110,11 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 46. [Notes QCM — `DESCRIBE HISTORY` et versions Delta](#46-notes-qcm--describe-history-et-versions-delta)
 47. [Notes QCM — `MERGE INTO` et upserts Delta](#47-notes-qcm--merge-into-et-upserts-delta)
 
+> Les questions Q1–Q7, Q9–Q10, Q12–Q15 et Q22–Q34 sont couvertes par les sections thématiques ci-dessus (sans note QCM dédiée pour l'instant).
+
 ## Parcours du pipeline (liens entre sections)
+
+<a id="parcours-du-pipeline-liens-entre-sections"></a>
 
 ### Session 1 — RDD
 
@@ -100,7 +134,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 
 | Étape notebook | Section rapport |
 |---|---|
-| `sc.textFile()` | [§1 Chargement](#1-chargement-dun-csv-avec-textfile) |
+| `sc.textFile()` | [§1 Chargement](#1-chargement-dun-csv-avec-textfile) · [§40 QCM `textFile`](#40-notes-qcm--textfile-et-rddstr) |
 | `getNumPartitions()` / `repartition()` | [§2 Partitions](#2-partitions-rdd-vs-sparksqlshufflepartitions) |
 | `filter` en-tête | [§3 Filtrage en-tête](#3-filtrage-dun-rdd-avec-filter-en-tête) |
 | `print(rdd)` lazy | [§4 PythonRDD](#4-affichage-dun-rdd-pythonrdd26) |
@@ -125,9 +159,8 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | jointures Velib × météo | [§19–§25](#19-alias-sql--que-signifie-dstation_id-) · [§42 QCM `DATE_TRUNC`](#42-notes-qcm--date_trunc-et-jointure-velib-meteo) |
 | `LAG` / `LEAD` / moyenne mobile | [§26 Fenêtres SQL](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile) · [§43 QCM `LAG`](#43-notes-qcm--lag-over-et-fenetre-analytique) · [MEM-02](MEM-02SPARK_Window-Functions.md) |
 | `ROW_NUMBER`, cumul, delta | [§27](#27-row_number--classement-par-heure) · [§44 QCM `ROW_NUMBER`](#44-notes-qcm--row_number-over-et-classement) · [§28](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding) |
-| batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) · [§47 QCM `MERGE INTO`](#47-notes-qcm--merge-into-et-upserts-delta) |
+| batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) · [§39 ACID](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul) · [§47 QCM `MERGE INTO`](#47-notes-qcm--merge-into-et-upserts-delta) |
 | time travel | [§33](#33-describe-history-et-time-travel-versionasof) · [§45 QCM `versionAsOf`](#45-notes-qcm--versionasof-et-time-travel-delta) · [§46 QCM `DESCRIBE HISTORY`](#46-notes-qcm--describe-history-et-versions-delta) |
-| transactions ACID | [§39 ACID Delta Lake](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul) |
 
 ### Session 4 — Structured Streaming
 
@@ -136,7 +169,9 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | simulateur + vérification JSON | [§34 Simulateur Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
 | sink console PySpark vs Python | [§35 Console vs Python pur](#35-sink-console-pyspark-vs-simulation-python-pure-24) |
 | Section 0 — driver, workers, Mac ARM | [§36 Driver vs workers](#36-driver-vs-workers--rôles-dans-spark) · [§10 Java arm64](#10-mac-apple-silicon--java-arm64-et-warning-psutil) |
-| fenêtres glissantes + sink Delta | [§38 Sink Delta fenêtres](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§37 Delta Spark](#37-delta-spark--à-quoi-ça-sert-en-session-4) |
+| fenêtres glissantes + sink Delta | [§38 Sink Delta fenêtres](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§37 Delta Spark](#37-delta-spark--à-quoi-ça-sert-en-session-4) · [§39 ACID](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul) |
+| checkpoint, watermark, `foreachBatch` | [§38](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§36](#36-driver-vs-workers--rôles-dans-spark) |
+| fin de session (`spark.stop()`) | [§34](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
 
 ---
 

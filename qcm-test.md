@@ -16,8 +16,8 @@
 ### Q1
 Qu'affiche `print(mon_rdd)` sur un RDD PySpark non encore exécuté ?
 
-- A) Les 10 premières lignes du fichier  
-- B) Une représentation du type `PythonRDD[…]` sans les données  
+- A) Une représentation du type `PythonRDD[…]` sans les données  
+- B) Les 10 premières lignes du fichier  
 - C) Le nombre exact de lignes du fichier  
 - D) Le plan d'exécution SQL formaté  
 
@@ -33,23 +33,23 @@ En Spark, quand une transformation comme `filter()` ou `map()` est-elle réellem
 Quelle est la différence principale entre les partitions d'un RDD (`getNumPartitions()`) et `spark.sql.shuffle.partitions` ?
 
 - A) Ce sont exactement la même chose  
-- B) Les partitions RDD concernent les données en entrée ; `shuffle.partitions` concerne les étapes de shuffle (jointures, agrégations)  
-- C) `shuffle.partitions` ne s'applique qu'au mode streaming  
+- B) `shuffle.partitions` ne s'applique qu'au mode streaming  
+- C) Les partitions RDD concernent les données en entrée ; `shuffle.partitions` concerne les étapes de shuffle (jointures, agrégations)  
 - D) Les partitions RDD ne peuvent pas être modifiées  
 
 ### Q4
 Pourquoi utilise-t-on `operative.lower() == "true"` lors du parsing CSV ?
 
 - A) Pour convertir automatiquement en entier  
-- B) Parce que les valeurs CSV sont du texte et peuvent varier en casse (`True`, `TRUE`, …)  
-- C) Pour supprimer les lignes sans station_id  
-- D) Pour partitionner le RDD par arrondissement  
+- B) Pour supprimer les lignes sans station_id  
+- C) Pour partitionner le RDD par arrondissement  
+- D) Parce que les valeurs CSV sont du texte et peuvent varier en casse (`True`, `TRUE`, …)  
 
 ### Q5
 Dans le pipeline Session 1, une station est considérée « quasi vide » si :
 
-- A) `velos_total == 0`  
-- B) `taux_occupation < 0.10`  
+- A) `taux_occupation < 0.10`  
+- B) `velos_total == 0`  
 - C) `bornettes_libres == capacite`  
 - D) `operative == False`  
 
@@ -65,17 +65,17 @@ Sur Mac Apple Silicon, le warning « Please install psutil » pendant un shuffle
 Quelle action est **déconseillée** sur un très gros RDD ?
 
 - A) `take(10)`  
-- B) `collect()`  
-- C) `count()`  
+- B) `count()`  
+- C) `collect()`  
 - D) `filter()`  
 
 ### Q8
 `sc.textFile("fichier.csv")` produit initialement un RDD de type :
 
 - A) `RDD[dict]`  
-- B) `RDD[str]` (une ligne = une chaîne)  
-- C) `DataFrame`  
-- D) `RDD[int]`  
+- B) `DataFrame`  
+- C) `RDD[int]`  
+- D) `RDD[str]` (une ligne = une chaîne)  
 
 ---
 
@@ -84,8 +84,8 @@ Quelle action est **déconseillée** sur un très gros RDD ?
 ### Q9
 À quoi sert `df.explain(mode="formatted")` ?
 
-- A) À afficher les 20 premières lignes sans troncature  
-- B) À inspecter le plan physique / logique d'exécution Spark  
+- A) À inspecter le plan physique / logique d'exécution Spark  
+- B) À afficher les 20 premières lignes sans troncature  
 - C) À écrire le DataFrame en Parquet  
 - D) À créer une vue temporaire SQL  
 
@@ -101,17 +101,17 @@ Quel avantage majeur du format Parquet par rapport au CSV ?
 Le **predicate pushdown** avec Parquet permet à Spark de :
 
 - A) Ignorer des colonnes entières non utilisées  
-- B) Sauter des blocs de données selon des filtres, avant de tout charger  
-- C) Convertir automatiquement CSV en JSON  
+- B) Convertir automatiquement CSV en JSON  
+- C) Sauter des blocs de données selon des filtres, avant de tout charger  
 - D) Désactiver le shuffle  
 
 ### Q12
 Par rapport à Pandas, un DataFrame Spark se distingue surtout par :
 
 - A) L'exécution sur une seule machine, toujours en mémoire  
-- B) Le calcul distribué et l'évaluation paresseuse (lazy)  
-- C) L'absence de schéma  
-- D) L'impossibilité de faire des jointures  
+- B) L'absence de schéma  
+- C) L'impossibilité de faire des jointures  
+- D) Le calcul distribué et l'évaluation paresseuse (lazy)  
 
 ---
 
@@ -120,8 +120,8 @@ Par rapport à Pandas, un DataFrame Spark se distingue surtout par :
 ### Q13
 À quoi sert le package `delta-spark` ?
 
-- A) À remplacer PySpark par une API plus rapide  
-- B) À ajouter des transactions ACID, historique et MERGE au-dessus de Parquet  
+- A) À ajouter des transactions ACID, historique et MERGE au-dessus de Parquet  
+- B) À remplacer PySpark par une API plus rapide  
 - C) À lire uniquement des fichiers CSV  
 - D) À exécuter du Python sur les workers sans JVM  
 
@@ -137,23 +137,23 @@ Quel dossier distingue une table Delta d'un simple dossier Parquet ?
 Un `LEFT ANTI JOIN` entre `A` et `B` retourne :
 
 - A) Toutes les lignes de A et B, même sans correspondance  
-- B) Les lignes de A qui **n'ont pas** de correspondance dans B  
-- C) Uniquement les lignes où A et B matchent  
+- B) Uniquement les lignes où A et B matchent  
+- C) Les lignes de A qui **n'ont pas** de correspondance dans B  
 - D) Le produit cartésien de A et B  
 
 ### Q16
 À quoi sert `DATE_TRUNC('hour', horodatage)` dans la jointure Vélib' × météo ?
 
 - A) À supprimer les lignes sans température  
-- B) À aligner les deux sources sur la même granularité temporelle (ici l'heure)  
-- C) À partitionner le disque par mois  
-- D) À activer le time travel Delta  
+- B) À partitionner le disque par mois  
+- C) À activer le time travel Delta  
+- D) À aligner les deux sources sur la même granularité temporelle (ici l'heure)  
 
 ### Q17
 En Spark SQL, `LAG(col, 1) OVER (PARTITION BY station ORDER BY horodatage)` permet de :
 
-- A) Compter le nombre total de stations  
-- B) Récupérer la valeur de la ligne **précédente** dans la fenêtre  
+- A) Récupérer la valeur de la ligne **précédente** dans la fenêtre  
+- B) Compter le nombre total de stations  
 - C) Supprimer les doublons  
 - D) Écrire en mode streaming  
 
@@ -168,24 +168,24 @@ En Spark SQL, `LAG(col, 1) OVER (PARTITION BY station ORDER BY horodatage)` perm
 ### Q19
 Pour relire une table Delta **telle qu'elle était** à la version 3, on utilise :
 
-- A) `.option("versionAsOf", 3)`  
-- B) `.mode("overwrite")`  
-- C) `MERGE INTO … WHEN NOT MATCHED`  
+- A) `.mode("overwrite")`  
+- B) `MERGE INTO … WHEN NOT MATCHED`  
+- C) `.option("versionAsOf", 3)`  
 - D) `repartition(3)`  
 
 ### Q20
 La commande `DESCRIBE HISTORY` sur une table Delta permet de :
 
-- A) Lister les versions et opérations (INSERT, MERGE, …)  
-- B) Supprimer les anciennes partitions  
-- C) Arrêter une requête streaming  
-- D) Convertir Parquet en CSV  
+- A) Supprimer les anciennes partitions  
+- B) Arrêter une requête streaming  
+- C) Convertir Parquet en CSV  
+- D) Lister les versions et opérations (INSERT, MERGE, …)  
 
 ### Q21
 `MERGE INTO` sur une table Delta est particulièrement utile pour :
 
-- A) Lire un fichier JSON ligne par ligne  
-- B) Faire des upserts (mettre à jour les lignes existantes, insérer les nouvelles)  
+- A) Faire des upserts (mettre à jour les lignes existantes, insérer les nouvelles)  
+- B) Lire un fichier JSON ligne par ligne  
 - C) Remplacer le driver Python  
 - D) Désactiver le watermark  
 
@@ -206,22 +206,22 @@ Quelle affirmation sur un DataFrame `readStream` est **fausse** ?
 
 - A) On ne peut pas appeler `.count()` directement dessus comme en batch  
 - B) Il représente un flux de données potentiellement infini  
-- C) Il peut être écrit avec `writeStream`  
-- D) Il est matérialisé entièrement en mémoire dès sa création  
+- C) Il est matérialisé entièrement en mémoire dès sa création  
+- D) Il peut être écrit avec `writeStream`  
 
 ### Q24
 À quoi sert le **checkpoint** dans une requête `writeStream` ?
 
 - A) À compresser les fichiers Parquet  
-- B) À mémoriser l'état (offsets, watermark…) pour reprendre après redémarrage  
-- C) À remplacer Delta Lake  
-- D) À afficher les résultats dans Jupyter  
+- B) À remplacer Delta Lake  
+- C) À afficher les résultats dans Jupyter  
+- D) À mémoriser l'état (offsets, watermark…) pour reprendre après redémarrage  
 
 ### Q25
 Le **watermark** sur une colonne temporelle sert à :
 
-- A) Accélérer le chargement du CSV initial  
-- B) Définir le retard maximal toléré avant de fermer une fenêtre d'agrégation  
+- A) Définir le retard maximal toléré avant de fermer une fenêtre d'agrégation  
+- B) Accélérer le chargement du CSV initial  
 - C) Chiffrer les données en transit  
 - D) Forcer l'exécution immédiate de toutes les transformations  
 
@@ -237,23 +237,23 @@ Pour une agrégation fenêtrée en streaming, quel `outputMode` est adapté pour
 Dans Session 4, `foreachBatch` est préféré à une simple agrégation lorsque :
 
 - A) On veut uniquement afficher 10 lignes en console  
-- B) On a besoin d'une logique métier complexe avec état entre micro-batchs (ex. alertes)  
-- C) On n'a pas besoin de Delta Lake  
+- B) On n'a pas besoin de Delta Lake  
+- C) On a besoin d'une logique métier complexe avec état entre micro-batchs (ex. alertes)  
 - D) Le simulateur est arrêté  
 
 ### Q28
 Quelle est la différence entre une fenêtre **glissante** `window(col, "10 minutes", "2 minutes")` et une fenêtre **basculante** `window(col, "15 minutes")` ?
 
-- A) La glissante avance par pas de 2 min ; la basculante est découpée en blocs fixes de 15 min sans chevauchement  
-- B) La basculante ne fonctionne qu'en batch  
-- C) La glissante ne nécessite pas de watermark  
-- D) Il n'y a aucune différence  
+- A) La basculante ne fonctionne qu'en batch  
+- B) La glissante ne nécessite pas de watermark  
+- C) Il n'y a aucune différence  
+- D) La glissante avance par pas de 2 min ; la basculante est découpée en blocs fixes de 15 min sans chevauchement  
 
 ### Q29
 Le **driver** Spark, c'est :
 
-- A) Le processus qui exécute les tâches sur chaque partition  
-- B) Le processus qui planifie le travail, envoie les tâches aux workers et assemble les résultats  
+- A) Le processus qui planifie le travail, envoie les tâches aux workers et assemble les résultats  
+- B) Le processus qui exécute les tâches sur chaque partition  
 - C) Un fichier Parquet sur disque  
 - D) Le simulateur `simulateur_flux.py`  
 
@@ -269,17 +269,17 @@ Pourquoi le simulateur `scripts/simulateur_flux.py` doit-il tourner **en parall�
 L'erreur `Cannot start query with name fenetres_arrondissement as a query with that name is already active` signifie :
 
 - A) Delta Lake n'est pas installé  
-- B) Une requête streaming du même nom tourne déjà dans la session  
-- C) Le watermark est trop court  
+- B) Le watermark est trop court  
+- C) Une requête streaming du même nom tourne déjà dans la session  
 - D) Le Parquet consolidé est manquant  
 
 ### Q32
 Pourquoi appeler `spark.stop()` en fin de notebook ?
 
 - A) Pour relancer automatiquement le simulateur  
-- B) Pour libérer la JVM, la mémoire et arrêter les requêtes streaming résiduelles  
-- C) Pour activer le time travel  
-- D) Pour convertir les RDD en DataFrame  
+- B) Pour activer le time travel  
+- C) Pour convertir les RDD en DataFrame  
+- D) Pour libérer la JVM, la mémoire et arrêter les requêtes streaming résiduelles  
 
 ---
 
@@ -288,8 +288,8 @@ Pourquoi appeler `spark.stop()` en fin de notebook ?
 ### Q33
 Dans le projet ClimaCity, le fichier `disponibilite_consolidee.parquet` (Session 2 §2.8) est un prérequis pour :
 
-- A) Session 1 uniquement  
-- B) Session 4 (simulateur de flux et streaming)  
+- A) Session 4 (simulateur de flux et streaming)  
+- B) Session 1 uniquement  
 - C) Aucune session  
 - D) Uniquement l'API RDD  
 
@@ -314,29 +314,31 @@ Delta Lake + checkpoint en streaming garantissent surtout :
 | Bonus | Q33–Q34 | 2 |
 | **Total** | **34 questions** | **34 points** |
 
+> **Répartition des bonnes réponses :** A = 9 · B = 9 · C = 8 · D = 8 (≈ 25 % chacune)
+
 ---
 
 ## Corrections
 
 | Q | Réponse | Q | Réponse |
 |---|---|---|---|
-| 1 | **B** | 18 | **B** |
-| 2 | **B** | 19 | **A** |
-| 3 | **B** | 20 | **A** |
-| 4 | **B** | 21 | **B** |
-| 5 | **B** | 22 | **B** |
-| 6 | **B** | 23 | **D** |
-| 7 | **B** | 24 | **B** |
-| 8 | **B** | 25 | **B** |
-| 9 | **B** | 26 | **B** |
-| 10 | **B** | 27 | **B** |
-| 11 | **B** | 28 | **A** |
-| 12 | **B** | 29 | **B** |
-| 13 | **B** | 30 | **B** |
-| 14 | **B** | 31 | **B** |
-| 15 | **B** | 32 | **B** |
-| 16 | **B** | 33 | **B** |
-| 17 | **B** | 34 | **B** |
+| 1 | **A** | 18 | **B** |
+| 2 | **B** | 19 | **C** |
+| 3 | **C** | 20 | **D** |
+| 4 | **D** | 21 | **A** |
+| 5 | **A** | 22 | **B** |
+| 6 | **B** | 23 | **C** |
+| 7 | **C** | 24 | **D** |
+| 8 | **D** | 25 | **A** |
+| 9 | **A** | 26 | **B** |
+| 10 | **B** | 27 | **C** |
+| 11 | **C** | 28 | **D** |
+| 12 | **D** | 29 | **A** |
+| 13 | **A** | 30 | **B** |
+| 14 | **B** | 31 | **C** |
+| 15 | **C** | 32 | **D** |
+| 16 | **D** | 33 | **A** |
+| 17 | **A** | 34 | **B** |
 
 ### Rappels clés par session
 

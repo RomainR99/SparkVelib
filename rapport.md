@@ -7,7 +7,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
 | [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
 | [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§35 |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§37 |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -65,6 +65,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 34. [Simulateur de flux + cellule de vérification Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4)
 35. [Sink console PySpark vs simulation Python pure (§2.4)](#35-sink-console-pyspark-vs-simulation-python-pure-24)
+36. [Driver vs workers — rôles dans Spark](#36-driver-vs-workers--rôles-dans-spark)
+37. [Delta Spark — à quoi ça sert en Session 4 ?](#37-delta-spark--à-quoi-ça-sert-en-session-4)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -120,7 +122,8 @@ reduceByKey / sortBy / take               →  top 10 [9]
 |---|---|
 | simulateur + vérification JSON | [§34 Simulateur Session 4](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
 | sink console PySpark vs Python | [§35 Console vs Python pur](#35-sink-console-pyspark-vs-simulation-python-pure-24) |
-| `readStream`, fenêtres, sinks Delta | `Spark_DIA3_Session_4.ipynb` §2.5+ |
+| Section 0 — driver, workers, Mac ARM | [§36 Driver vs workers](#36-driver-vs-workers--rôles-dans-spark) · [§10 Java arm64](#10-mac-apple-silicon--java-arm64-et-warning-psutil) |
+| `readStream`, fenêtres, sinks Delta | [§37 Delta Spark Session 4](#37-delta-spark--à-quoi-ça-sert-en-session-4) · [§13 Delta Lake](#13-delta-lake-et-le-package-delta-spark) |
 
 ---
 
@@ -3963,3 +3966,162 @@ Simulateur (terminal)
 | **Python pur** | même logique métier, exécution manuelle pour comprendre le flux |
 
 Les deux cellules sont **complémentaires** : Python explique *quoi* est calculé ; PySpark montre *comment* Spark industrialise ce calcul en flux continu.
+
+---
+
+<a id="36-driver-vs-workers--rôles-dans-spark"></a>
+
+# 36. Driver vs workers — rôles dans Spark
+
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — Section 0 (initialisation)  
+> Voir aussi : [§10 — Mac Apple Silicon, Java arm64 et `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
+
+## Question
+
+Dans Spark, quelle est la différence entre le **driver** et les **workers** ? Pourquoi la Section 0 de Session 4 configure-t-elle séparément `PYSPARK_DRIVER_PYTHON` et `PYSPARK_PYTHON` ?
+
+---
+
+## Réponse
+
+Dans Spark, une application se découpe en **deux rôles** : le driver planifie et coordonne ; les workers exécutent le calcul en parallèle sur les partitions de données.
+
+---
+
+## 1. Driver — le chef d'orchestre
+
+C'est le processus Python/JVM qui lance la session (`SparkSession`).
+
+Il :
+
+- lit votre code (notebook, script) ;
+- construit le **plan d'exécution** (transformations, agrégations, jointures…) ;
+- découpe le travail en tâches et les envoie aux workers ;
+- récupère et assemble les résultats (`collect`, `show`, écriture finale) ;
+- gère aussi le **streaming** : déclenche les micro-batches, checkpoints, etc.
+
+En local (`local[*]`), le driver tourne sur votre machine.
+
+---
+
+## 2. Workers — les exécuteurs
+
+Ce sont les processus qui font le travail concret.
+
+Ils :
+
+- reçoivent des morceaux de données (**partitions**) ;
+- exécutent les tâches : lire des fichiers, filtrer, agréger, écrire ;
+- tournent **en parallèle** pour aller plus vite.
+
+En `local[*]`, les workers sont aussi sur votre machine (plusieurs processus JVM), mais le rôle reste le même :
+
+| Rôle | Mission |
+|---|---|
+| **Driver** | planifie |
+| **Workers** | calculent |
+
+---
+
+## 3. Analogie rapide
+
+- **Driver** = le chef de chantier qui lit les plans et répartit le travail.
+- **Workers** = les ouvriers qui font le travail sur chaque zone.
+
+---
+
+## 4. Pourquoi c'est important dans Session 4 (Mac ARM)
+
+La Section 0 configure :
+
+| Variable | Cible |
+|---|---|
+| `PYSPARK_DRIVER_PYTHON` | Python du **driver** |
+| `PYSPARK_PYTHON` | Python des **workers** |
+
+Si driver et workers n'utilisent pas la même architecture (**arm64** vs **x86**), vous pouvez obtenir des erreurs difficiles à diagnostiquer. D'où le wrapper `python-arm64` créé automatiquement sur Mac Apple Silicon.
+
+> Pour le détail du conflit arm64/x86 et le warning `psutil`, voir [§10](#10-mac-apple-silicon--java-arm64-et-warning-psutil).
+
+---
+
+## Synthèse
+
+| En une phrase | |
+|---|---|
+| **Driver** | planifie, coordonne, assemble les résultats |
+| **Workers** | exécutent le calcul en parallèle sur les partitions |
+
+En local, tout tourne sur la même machine — mais la séparation des rôles reste fondamentale pour comprendre Structured Streaming, les checkpoints et les sinks Delta.
+
+---
+
+<a id="37-delta-spark--à-quoi-ça-sert-en-session-4"></a>
+
+# 37. Delta Spark — à quoi ça sert en Session 4 ?
+
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — Section 0, fenêtres glissantes, sink Delta  
+> Voir aussi : [§13 — Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
+
+## Question
+
+À quoi sert **Delta Spark** (`delta-spark` / `configure_spark_with_delta_pip`) dans Session 4, alors que Spark sait déjà lire et écrire du Parquet ?
+
+---
+
+## Réponse
+
+**Delta Lake** ajoute une **couche transactionnelle** au-dessus de fichiers Parquet. En Session 4, il est indispensable pour écrire en streaming vers des tables fiables (`.format("delta")`) et pour réutiliser les tables Delta créées en Session 3.
+
+---
+
+## 1. Sans Delta — Parquet seul
+
+- vous écrivez des fichiers Parquet « à la main » ;
+- en cas d'échec au milieu d'une écriture, vous pouvez avoir des **données partielles** ;
+- pas de vraie gestion de versions, `MERGE`, time travel, etc.
+
+---
+
+## 2. Avec Delta — transactions ACID
+
+- chaque écriture est une **transaction** (ACID) ;
+- les lectures voient toujours un **état cohérent** ;
+- vous pouvez faire :
+  - **append** (ajouter des lignes),
+  - **MERGE** (upsert),
+  - **time travel** (lire une version passée),
+  - **streaming + Delta** (écrire en continu proprement).
+
+---
+
+## 3. Usage concret dans Session 4
+
+| Élément | Rôle |
+|---|---|
+| `DELTA_DISPONIBLE`, `DELTA_ALERTES` | lire / écrire des tables Delta (héritées de Session 3) |
+| `.format("delta")` sur `writeStream` | sink streaming pour les fenêtres glissantes |
+| `DeltaSparkSessionExtension`, `DeltaCatalog` | extensions activées dans `create_delta_spark_session()` |
+| `_delta_is_configured()` | vérifie que Delta est bien actif avant les sinks |
+
+La Section 0 appelle `configure_spark_with_delta_pip()` et lève une erreur explicite si Delta n'est pas actif — car les requêtes `readStream` / `writeStream` vers Delta échoueraient sinon.
+
+---
+
+## 4. Spark vs Delta Spark
+
+| | Rôle |
+|---|---|
+| **Spark** | moteur de calcul distribué (batch ou streaming) |
+| **Delta Spark** | format de stockage « intelligent » pour que ces calculs écrivent et lisent des données de façon **fiable et versionnée** |
+
+---
+
+## Synthèse
+
+| Sans Delta | Avec Delta |
+|---|---|
+| fichiers Parquet bruts, risque d'incohérence | transactions ACID, historique, MERGE, time travel |
+| streaming fragile en cas d'échec | sink `.format("delta")` + checkpoint = écriture continue fiable |
+
+En une phrase : **Spark calcule ; Delta Spark garantit que ce qui est écrit (batch ou flux) reste cohérent, versionné et exploitable en production.**

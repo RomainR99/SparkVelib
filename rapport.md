@@ -7,9 +7,11 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | §1–§10 |
 | [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | §11–§12 |
 | [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | §13–§33 |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§38 |
+| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | §34–§42 |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
+
+**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — notes : [§40 `textFile`](#40-notes-qcm--textfile-et-rddstr) · [§41 pushdown](#41-notes-qcm--predicate-pushdown-et-parquet) · [§42 `DATE_TRUNC`](#42-notes-qcm--date_trunc-et-jointure-velib-meteo) · [§43 `LAG`](#43-notes-qcm--lag-over-et-fenetre-analytique) · [§44 `ROW_NUMBER`](#44-notes-qcm--row_number-over-et-classement) · [§45 time travel](#45-notes-qcm--versionasof-et-time-travel-delta) · [§46 `DESCRIBE HISTORY`](#46-notes-qcm--describe-history-et-versions-delta) · [§47 `MERGE INTO`](#47-notes-qcm--merge-into-et-upserts-delta)
 
 ## Sommaire
 
@@ -68,6 +70,15 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 36. [Driver vs workers — rôles dans Spark](#36-driver-vs-workers--rôles-dans-spark)
 37. [Delta Spark — à quoi ça sert en Session 4 ?](#37-delta-spark--à-quoi-ça-sert-en-session-4)
 38. [Sink Delta des fenêtres glissantes (`writeStream`)](#38-sink-delta-des-fenêtres-glissantes-writestream)
+39. [Transactions ACID — pourquoi Delta Lake plutôt que Parquet seul ?](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul)
+40. [Notes QCM — `textFile` et `RDD[str]`](#40-notes-qcm--textfile-et-rddstr)
+41. [Notes QCM — predicate pushdown et Parquet](#41-notes-qcm--predicate-pushdown-et-parquet)
+42. [Notes QCM — `DATE_TRUNC` et jointure Vélib' × météo](#42-notes-qcm--date_trunc-et-jointure-velib-meteo)
+43. [Notes QCM — `LAG(...) OVER` et fenêtre analytique](#43-notes-qcm--lag-over-et-fenetre-analytique)
+44. [Notes QCM — `ROW_NUMBER() OVER` et classement](#44-notes-qcm--row_number-over-et-classement)
+45. [Notes QCM — `versionAsOf` et time travel Delta](#45-notes-qcm--versionasof-et-time-travel-delta)
+46. [Notes QCM — `DESCRIBE HISTORY` et versions Delta](#46-notes-qcm--describe-history-et-versions-delta)
+47. [Notes QCM — `MERGE INTO` et upserts Delta](#47-notes-qcm--merge-into-et-upserts-delta)
 
 ## Parcours du pipeline (liens entre sections)
 
@@ -104,18 +115,19 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | Étape notebook | Section rapport |
 |---|---|
 | jointure Vélib' × météo + `explain()` | [§11 Plan d'exécution](#11-plan-dexécution--dfexplainmodeformatted) |
-| lecture / écriture Parquet partitionné | [§12 Parquet vs CSV/JSON](#12-pourquoi-parquet-plutôt-que-csv-ou-json) |
+| lecture / écriture Parquet partitionné | [§12 Parquet vs CSV/JSON](#12-pourquoi-parquet-plutôt-que-csv-ou-json) · [§41 QCM pushdown](#41-notes-qcm--predicate-pushdown-et-parquet) |
 
 ### Session 3 — Spark SQL, fenêtres & Delta
 
 | Étape notebook | Section rapport |
 |---|---|
 | config Delta, vues SQL | [§13–§18](#13-delta-lake-et-le-package-delta-spark) |
-| jointures Velib × météo | [§19–§25](#19-alias-sql--que-signifie-dstation_id-) |
-| `LAG` / `LEAD` / moyenne mobile | [§26 Fenêtres SQL](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile) · [MEM-02](MEM-02SPARK_Window-Functions.md) |
-| `ROW_NUMBER`, cumul, delta | [§27](#27-row_number--classement-par-heure) · [§28](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding) |
-| batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) |
-| time travel | [§33](#33-describe-history-et-time-travel-versionasof) |
+| jointures Velib × météo | [§19–§25](#19-alias-sql--que-signifie-dstation_id-) · [§42 QCM `DATE_TRUNC`](#42-notes-qcm--date_trunc-et-jointure-velib-meteo) |
+| `LAG` / `LEAD` / moyenne mobile | [§26 Fenêtres SQL](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile) · [§43 QCM `LAG`](#43-notes-qcm--lag-over-et-fenetre-analytique) · [MEM-02](MEM-02SPARK_Window-Functions.md) |
+| `ROW_NUMBER`, cumul, delta | [§27](#27-row_number--classement-par-heure) · [§44 QCM `ROW_NUMBER`](#44-notes-qcm--row_number-over-et-classement) · [§28](#28-moyenne-cumulée-et-delta-entre-snapshots-rows-unbounded-preceding) |
+| batch + `MERGE INTO` | [§30–§32](#30-simulation-batch-merge--décaler-un-horodatage-string) · [§47 QCM `MERGE INTO`](#47-notes-qcm--merge-into-et-upserts-delta) |
+| time travel | [§33](#33-describe-history-et-time-travel-versionasof) · [§45 QCM `versionAsOf`](#45-notes-qcm--versionasof-et-time-travel-delta) · [§46 QCM `DESCRIBE HISTORY`](#46-notes-qcm--describe-history-et-versions-delta) |
+| transactions ACID | [§39 ACID Delta Lake](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul) |
 
 ### Session 4 — Structured Streaming
 
@@ -217,6 +229,8 @@ count() / take()  →  lecture disque + traitement parallèle
        ↓
 résultat remonté au notebook
 ```
+
+> **QCM (Q8) :** `sc.textFile("fichier.csv")` produit initialement un **`RDD[str]`** — une ligne du fichier = une chaîne brute, pas encore un dictionnaire ni un DataFrame. Voir [§40](#40-notes-qcm--textfile-et-rddstr).
 
 C'est le principe central de Spark : **transformations paresseuses** (construire le plan) vs **actions** (exécuter le plan).
 
@@ -1493,6 +1507,8 @@ Avec un CSV, il faut parcourir **toutes les lignes** pour vérifier le filtre.
 
 C'est le **predicate pushdown** : le filtre est poussé le plus bas possible dans le plan d'exécution, au plus près du disque.
 
+> **QCM (Q11) :** le predicate pushdown permet de **sauter des blocs de données** selon les filtres, avant de tout charger — pas seulement d'ignorer des colonnes. Voir [§41](#41-notes-qcm--predicate-pushdown-et-parquet).
+
 ---
 
 ## 7. Exemple concret
@@ -1570,6 +1586,8 @@ Pourquoi installer `delta-spark` alors que Spark sait déjà lire et écrire du 
 Le package **`delta-spark`** permet à Spark de lire, écrire et gérer des tables au format **Delta Lake**.
 
 Delta Lake est une **couche au-dessus de Parquet** qui ajoute des fonctionnalités essentielles pour les pipelines Big Data : transactions, mises à jour, historique et time travel.
+
+> **Approfondissement :** [§39 — Transactions ACID](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul)
 
 ---
 
@@ -2882,6 +2900,8 @@ La requête `df_q2` compare alors les distributions de `taux_occupation` par con
 | côté météo | aligne les mesures horaires Montsouris |
 | dans `df_q2` | clé de jointure pour comparer occupation sec / pluie |
 
+> **QCM (Q16) :** `DATE_TRUNC('hour', horodatage)` sert à **aligner les deux sources sur la même granularité temporelle** (ici l'heure). Voir [§42](#42-notes-qcm--date_trunc-et-jointure-velib-meteo).
+
 En une phrase : **`DATE_TRUNC('hour', …)` transforme des horodatages précis en clés horaires communes**, ce qui rend possible la jointure SQL entre disponibilité Vélib' et météo.
 
 ---
@@ -3351,6 +3371,8 @@ WINDOW w AS (PARTITION BY station_id ORDER BY horodatage)
 | `AVG(...) OVER (... ROWS BETWEEN ...)` | agrégat sur un nombre fixe de lignes |
 | `WINDOW w AS (...)` | factorise la définition de fenêtre réutilisée par plusieurs colonnes |
 
+> **QCM (Q17) :** `LAG(col, 1) OVER (PARTITION BY station ORDER BY horodatage)` récupère la valeur de la ligne **précédente** dans la fenêtre. Voir [§43](#43-notes-qcm--lag-over-et-fenetre-analytique).
+
 En une phrase : **`OVER` indique *sur quelles lignes* calculer la fonction ; `ROWS BETWEEN` précise *combien* de lignes inclure dans une moyenne mobile.**
 
 ---
@@ -3404,6 +3426,8 @@ ORDER BY heure, rang
 ## Synthèse
 
 `ROW_NUMBER() OVER (PARTITION BY heure ORDER BY taux_moyen DESC)` répond à : **« quelle station est la plus occupée à 8h, à 9h, etc. ? »**
+
+> **QCM (Q18) :** `ROW_NUMBER() OVER (PARTITION BY heure ORDER BY taux DESC)` sert surtout à **attribuer un rang (1, 2, 3…) à chaque ligne dans un groupe**. Voir [§44](#44-notes-qcm--row_number-over-et-classement).
 
 ---
 
@@ -3700,6 +3724,8 @@ Chaque `MERGE` crée une **nouvelle version** Delta visible dans l'historique ([
 
 `MERGE INTO` = upsert SQL natif Delta : **UPDATE** si la clé existe, **INSERT** sinon. Toujours passer le chemin absolu via `.resolve()` en local.
 
+> **QCM (Q21) :** `MERGE INTO` sur une table Delta sert surtout à faire des **upserts** (mettre à jour les lignes existantes, insérer les nouvelles). Voir [§47](#47-notes-qcm--merge-into-et-upserts-delta).
+
 ---
 
 <a id="33-describe-history-et-time-travel-versionasof"></a>
@@ -3768,6 +3794,10 @@ On agrège ensuite sur janvier 2022 (`annee = 2022 AND mois = 1`) pour comparer 
 |---|---|
 | `spark.sql("DESCRIBE HISTORY delta.\`...\`")` | liste des versions et opérations |
 | `.option("versionAsOf", n)` | relire la table **telle qu'elle était** à la version `n` |
+
+> **QCM (Q19) :** pour relire une table Delta **telle qu'elle était** à la version 3, on utilise `.option("versionAsOf", 3)`. Voir [§45](#45-notes-qcm--versionasof-et-time-travel-delta).
+
+> **QCM (Q20) :** `DESCRIBE HISTORY` permet de **lister les versions et opérations** (`WRITE`, `MERGE`, …). Voir [§46](#46-notes-qcm--describe-history-et-versions-delta).
 
 En une phrase : **`DESCRIBE HISTORY` identifie la version juste avant le MERGE ; `versionAsOf` permet de voyager dans le temps pour comparer les agrégats.**
 
@@ -4258,3 +4288,961 @@ as a query with that name is already active in this SparkSession
 | **`append` + watermark** | seules les fenêtres **fermées** sont persistées |
 
 En une phrase : **toutes les 10 s, Spark traite les nouveaux snapshots, calcule les fenêtres par arrondissement, et ajoute les résultats finalisés dans une table Delta, en mémorisant sa progression dans le checkpoint.**
+
+---
+
+<a id="39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul"></a>
+
+# 39. Transactions ACID — pourquoi Delta Lake plutôt que Parquet seul ?
+
+> Notebook : `Spark_DIA3_Session_3.ipynb` — Delta Lake, écriture, `MERGE INTO`  
+> Voir aussi : [§13 — Delta Lake et `delta-spark`](#13-delta-lake-et-le-package-delta-spark) · [§37 — Delta en Session 4](#37-delta-spark--à-quoi-ça-sert-en-session-4)
+
+## Question
+
+Pourquoi utiliser **Delta Lake** (`delta-spark`) plutôt que de simples fichiers Parquet ?
+
+---
+
+## Réponse
+
+Les **transactions ACID** sont l'une des principales raisons d'utiliser Delta Lake plutôt que Parquet seul.
+
+**ACID** signifie :
+
+| Lettre | Propriété | En bref |
+|---|---|---|
+| **A** | Atomicity (Atomicité) | tout ou rien |
+| **C** | Consistency (Cohérence) | état toujours valide |
+| **I** | Isolation | écritures concurrentes sans corruption |
+| **D** | Durability (Durabilité) | une fois validé, c'est persisté |
+
+---
+
+## 1. Atomicité (Atomicity)
+
+Une transaction est exécutée **entièrement ou pas du tout**.
+
+### Sans Delta (Parquet)
+
+Tu écris 1 million de lignes. Au bout de 600 000 lignes, la machine tombe en panne.
+
+Tu peux te retrouver avec :
+
+```
+part-0001.parquet
+part-0002.parquet
+part-0003.parquet
+```
+
+… mais il **manque** plusieurs fichiers. Le dataset est **incomplet**.
+
+### Avec Delta
+
+Delta écrit d'abord les nouveaux fichiers, puis met à jour le journal (`_delta_log`) **uniquement lorsque tout est terminé**.
+
+Si le job échoue :
+
+| Ancienne version | Nouvelle version |
+|---|---|
+| ✔ visible | ❌ jamais exposée |
+
+Les utilisateurs continuent de voir l'ancienne version **complète**. Ils ne voient jamais une table à moitié écrite.
+
+---
+
+## 2. Cohérence (Consistency)
+
+Les données restent toujours dans un **état valide**.
+
+Exemple — table `clients` :
+
+| id | nom |
+|---|---|
+| 1 | Alice |
+| 2 | Bob |
+
+Tu ajoutes un nouveau client. Avec Delta :
+
+- le schéma reste cohérent ;
+- les métadonnées sont mises à jour correctement ;
+- les fichiers restent synchronisés.
+
+Tu ne peux pas obtenir une table où les métadonnées indiquent 3 colonnes alors que les fichiers en contiennent 4.
+
+---
+
+## 3. Isolation (Isolation)
+
+Deux utilisateurs peuvent écrire en même temps sans se gêner.
+
+```
+Utilisateur A ──┐
+                ├── Table Delta
+Utilisateur B ──┘
+```
+
+Les deux lancent un `UPDATE`. Delta utilise un mécanisme appelé **optimistic concurrency control** :
+
+1. chaque transaction travaille sur une **version** de la table ;
+2. au moment de valider, Delta vérifie qu'aucune transaction incompatible n'a modifié les mêmes données ;
+3. en cas de conflit, une des transactions **échoue** et doit être relancée.
+
+Cela évite les écritures incohérentes.
+
+---
+
+## 4. Durabilité (Durability)
+
+Une fois la transaction **validée**, les données sont définitivement enregistrées.
+
+Même si :
+
+- Spark s'arrête ;
+- le cluster redémarre ;
+- une machine tombe en panne.
+
+Les modifications validées restent disponibles.
+
+---
+
+## Pourquoi Parquet seul ne suffit pas ?
+
+Imaginons que tu veuilles modifier une ligne dans `clients.parquet`.
+
+En Parquet, tu ne peux **pas** modifier directement une ligne. Il faut généralement :
+
+```
+Lire tout le fichier
+       ↓
+Modifier une ligne
+       ↓
+Réécrire tout le fichier
+```
+
+Si le programme plante au milieu :
+
+- ancien fichier supprimé ;
+- nouveau fichier incomplet ;
+- **risque de perte de données**.
+
+Avec Delta :
+
+```
+Ancienne version
+        │
+        ▼
+Création des nouveaux fichiers
+        │
+        ▼
+Validation dans _delta_log
+```
+
+Si quelque chose échoue **avant** la validation, l'ancienne version reste utilisée.
+
+---
+
+## Le rôle du dossier `_delta_log`
+
+Une table Delta ressemble à :
+
+```
+data/
+│
+├── part-0001.parquet
+├── part-0002.parquet
+├── part-0003.parquet
+└── _delta_log/
+    ├── 00000000000000000000.json
+    ├── 00000000000000000001.json
+    └── 00000000000000000002.json
+```
+
+Le dossier `_delta_log` contient le **journal des transactions**. Chaque fichier JSON décrit :
+
+- quels fichiers ont été **ajoutés** ;
+- quels fichiers ont été **supprimés** ;
+- quelle est la **nouvelle version** de la table.
+
+C'est grâce à ce journal que Delta garantit les propriétés ACID.
+
+---
+
+## Exemple concret — `UPDATE`
+
+Table initiale :
+
+| id | solde |
+|---|---|
+| 1 | 1000 |
+
+```python
+from delta.tables import DeltaTable
+
+table = DeltaTable.forPath(spark, "data/clients")
+
+table.update(
+    condition="id = 1",
+    set={"solde": "900"},
+)
+```
+
+Avec Delta :
+
+1. les nouveaux fichiers sont préparés ;
+2. le `_delta_log` est mis à jour ;
+3. la nouvelle version devient visible.
+
+Si le serveur s'éteint **juste avant** l'étape 2 :
+
+- le solde reste à **1000** ;
+- il ne passe jamais à une valeur intermédiaire ou incohérente.
+
+---
+
+## Synthèse
+
+| Propriété | Signification |
+|---|---|
+| **Atomicité** | une modification est appliquée entièrement ou pas du tout |
+| **Cohérence** | les données restent toujours dans un état valide |
+| **Isolation** | plusieurs écritures simultanées ne corrompent pas la table |
+| **Durabilité** | une transaction validée est conservée après redémarrage ou panne |
+
+En une phrase : **Delta Lake se comporte comme une base de données transactionnelle tout en stockant des fichiers Parquet ; Parquet seul est un format de stockage optimisé, sans gestion native des transactions.**
+
+---
+
+<a id="40-notes-qcm--textfile-et-rddstr"></a>
+
+# 40. Notes QCM — `textFile` et `RDD[str]`
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q8 — Session 1  
+> Voir aussi : [§1 — Chargement CSV avec `textFile()`](#1-chargement-dun-csv-avec-textfile)
+
+## Question (QCM Q8)
+
+`sc.textFile("fichier.csv")` produit initialement un RDD de quel type ?
+
+---
+
+## Réponse
+
+**`RDD[str]`** — chaque élément est **une ligne du fichier sous forme de chaîne de caractères**.
+
+```python
+raw_rdd = sc.textFile("fichier.csv")
+# type logique : RDD[str]
+# ex. "2020-11-26T14:25Z,82413301,Ménilmontant,40,..."
+```
+
+Ce n'est **pas** :
+
+| Type | Pourquoi ce n'est pas le cas ici |
+|---|---|
+| `RDD[dict]` | le parsing CSV (`split`, `map(parse_ligne)`) vient **après** |
+| `DataFrame` | il faudrait `spark.read.csv(...)` ou convertir le RDD |
+| `RDD[int]` | Spark ne convertit pas les lignes en entiers automatiquement |
+
+---
+
+## À retenir pour le QCM
+
+- `textFile` = source **texte brut**, ligne par ligne ;
+- le typage métier (colonnes, booléens, nombres) se fait dans les étapes suivantes du pipeline Session 1 (`map`, `filter`, …) ;
+- la lecture disque n'a lieu qu'à la **première action** (`count`, `take`, …).
+
+En une phrase : **`textFile` donne un plan `RDD[str]` ; le CSV n'est pas encore « décodé » en tableau.**
+
+---
+
+<a id="41-notes-qcm--predicate-pushdown-et-parquet"></a>
+
+# 41. Notes QCM — predicate pushdown et Parquet
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q11 — Session 2  
+> Voir aussi : [§12 — Parquet vs CSV/JSON](#12-pourquoi-parquet-plutôt-que-csv-ou-json) (§6 predicate pushdown)
+
+## Question (QCM Q11)
+
+Le **predicate pushdown** avec Parquet permet à Spark de :
+
+---
+
+## Réponse
+
+**Sauter des blocs de données selon les filtres, avant de tout charger.**
+
+Parquet enregistre des **statistiques par bloc** (min, max, nulls…). Si un filtre exclut tout un bloc (ex. `annee = 2020` alors que le bloc ne contient que 2021), Spark **ne lit pas** ce bloc sur disque.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Ignorer des colonnes entières | c'est le **column pruning** (`select`), pas le pushdown |
+| Convertir CSV en JSON | hors sujet |
+| Désactiver le shuffle | le shuffle reste possible après lecture |
+
+---
+
+## Exemple de code (Session 2)
+
+```python
+df_nov_2020 = (
+    spark.read.parquet(str(VELIB_PARQ_DIR))
+    .filter("annee = 2020 AND mois = 11")
+)
+
+# Vérifier que le filtre est poussé vers la source Parquet :
+df_nov_2020.explain(mode="formatted")
+```
+
+Dans le plan, on cherche souvent une forme de **filtre appliqué à la lecture** (`PushedFilters`, `PartitionFilters`, `DataFilters` selon versions Spark) — signe que Spark élimine des blocs ou partitions **avant** de matérialiser toutes les lignes.
+
+---
+
+## Schéma mental
+
+```
+Sans pushdown (CSV)          Avec pushdown (Parquet)
+───────────────────          ───────────────────────
+Lire TOUT le fichier    →    Lire stats des blocs
+        ↓                            ↓
+Appliquer le filtre       →    Sauter blocs impossibles
+        ↓                            ↓
+Garder les lignes OK      →    Lire seulement blocs utiles
+```
+
+---
+
+## À retenir pour le QCM
+
+- **Column pruning** = ne lire que les colonnes demandées (`select`) ;
+- **Predicate pushdown** = ne lire que les **blocs/lignes** compatibles avec le `filter` ;
+- avec un CSV via `textFile`, Spark parcourt en général **toutes les lignes** pour filtrer.
+
+En une phrase : **Parquet + `filter` = Spark peut éliminer des blocs entiers sans les charger en mémoire.**
+
+---
+
+<a id="42-notes-qcm--date_trunc-et-jointure-velib-meteo"></a>
+
+# 42. Notes QCM — `DATE_TRUNC` et jointure Vélib' × météo
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q16 — Session 3  
+> Voir aussi : [§22 — `DATE_TRUNC`](#22-date_trunc--aligner-velib-et-météo-à-lheure) · [§24 — jointure Velib × météo](#24-alias-d-et-m--jointure-velib--météo)
+
+## Question (QCM Q16)
+
+À quoi sert `DATE_TRUNC('hour', horodatage)` dans la jointure Vélib' × météo ?
+
+---
+
+## Réponse
+
+**À aligner les deux sources sur la même granularité temporelle (ici l'heure).**
+
+Les snapshots Vélib' peuvent avoir des minutes (`14:37:00`) alors que la météo Montsouris est **horaire** (`14:00`). `DATE_TRUNC('hour', …)` ramène chaque horodatage au **début de l'heure** (`14:00:00`) pour en faire une **clé de jointure commune**.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Supprimer les lignes sans température | c'est un filtre `WHERE`, pas un `DATE_TRUNC` |
+| Partitionner le disque par mois | c'est `partitionBy("mois")` à l'écriture |
+| Activer le time travel Delta | c'est `versionAsOf` / `DESCRIBE HISTORY` ([§45](#45-notes-qcm--versionasof-et-time-travel-delta) · [§46](#46-notes-qcm--describe-history-et-versions-delta)) |
+
+---
+
+## Exemple de code (Session 3 — `df_q2`)
+
+```sql
+WITH disponibilite_h AS (
+    SELECT
+        taux_occupation,
+        DATE_TRUNC(
+            'hour',
+            TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm'Z'")
+        ) AS heure_tronquee
+    FROM disponibilite
+),
+meteo_h AS (
+    SELECT
+        DATE_TRUNC(
+            'hour',
+            TO_TIMESTAMP(horodatage, "yyyy-MM-dd'T'HH:mm")
+        ) AS heure_tronquee,
+        precipitations_mm
+    FROM meteo
+)
+SELECT ...
+FROM disponibilite_h v
+LEFT JOIN meteo_h m
+    ON v.heure_tronquee = m.heure_tronquee
+```
+
+| Horodatage Vélib' | Horodatage météo | Clé après `DATE_TRUNC('hour', …)` |
+|---|---|---|
+| `2020-06-15 14:37:00` | `2020-06-15 14:00` | `2020-06-15 14:00:00` |
+| `2020-06-15 14:59:59` | `2020-06-15 14:00` | `2020-06-15 14:00:00` |
+
+Sans cette troncature, `14:37:00 = 14:00:00` échoue et la jointure ne matche presque jamais.
+
+---
+
+## Schéma mental
+
+```
+Vélib' (snapshots)          Météo (horaire)
+14:37, 14:42, 14:55   →     14:00
+        │                      │
+        └──── DATE_TRUNC('hour') ────┘
+                    │
+              clé 14:00:00
+                    │
+              LEFT JOIN df_q2
+```
+
+---
+
+## À retenir pour le QCM
+
+- `DATE_TRUNC` = **tronquer** une date/heure à une unité (`hour`, `day`, `month`…) ;
+- on l'applique **des deux côtés** de la jointure pour la même granularité ;
+- objectif métier : comparer occupation Vélib' selon la pluie **à l'heure**.
+
+En une phrase : **`DATE_TRUNC('hour', …)` fabrique une clé horaire commune pour joindre Vélib' et météo.**
+
+---
+
+<a id="43-notes-qcm--lag-over-et-fenetre-analytique"></a>
+
+# 43. Notes QCM — `LAG(...) OVER` et fenêtre analytique
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q17 — Session 3  
+> Voir aussi : [§26 — `OVER` / `WINDOW w`](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile) · [MEM-02](MEM-02SPARK_Window-Functions.md)
+
+## Question (QCM Q17)
+
+En Spark SQL, `LAG(col, 1) OVER (PARTITION BY station ORDER BY horodatage)` permet de :
+
+---
+
+## Réponse
+
+**Récupérer la valeur de la ligne précédente dans la fenêtre.**
+
+`LAG` = *lag* (« retard ») : pour chaque ligne, on remonte d'**1** position dans l'ordre défini par `ORDER BY horodatage`, **à l'intérieur** de chaque `PARTITION BY station`.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Compter le nombre total de stations | c'est `COUNT(DISTINCT station)` ou `COUNT(*) OVER (...)` |
+| Supprimer les doublons | c'est `DISTINCT` ou `ROW_NUMBER` + filtre |
+| Écrire en mode streaming | c'est `readStream` / `writeStream` (Session 4) |
+
+---
+
+## Exemple de code (Session 3)
+
+```sql
+SELECT
+    station_id,
+    horodatage,
+    taux_occupation,
+    LAG(taux_occupation, 1) OVER w AS taux_precedent,
+    taux_occupation - LAG(taux_occupation, 1) OVER w AS delta_taux
+FROM disponibilite
+WINDOW w AS (PARTITION BY station_id ORDER BY horodatage)
+```
+
+| `station_id` | `horodatage` | `taux_occupation` | `taux_precedent` (`LAG`) |
+|---|---|---|---|
+| 101 | 08:00 | 0.40 | `NULL` (pas de ligne avant) |
+| 101 | 08:10 | 0.55 | 0.40 |
+| 101 | 08:20 | 0.48 | 0.55 |
+
+- première ligne de chaque station → `LAG` vaut **`NULL`** ;
+- on peut ensuite calculer un **écart** : `taux - LAG(taux, 1)`.
+
+---
+
+## Lire la clause `OVER`
+
+```sql
+LAG(col, 1) OVER (PARTITION BY station ORDER BY horodatage)
+```
+
+| Morceau | Rôle |
+|---|---|
+| `LAG(col, 1)` | valeur de `col` **1 ligne avant** |
+| `PARTITION BY station` | fenêtre **par station** (séries indépendantes) |
+| `ORDER BY horodatage` | ordre chronologique des snapshots |
+
+Complément : `LEAD(col, 1)` fait l'inverse — valeur de la ligne **suivante**.
+
+---
+
+## Schéma mental
+
+```
+Station 101 :  0.40 → 0.55 → 0.48
+                 ↑      ↑      ↑
+LAG(...,1):   NULL   0.40   0.55
+```
+
+---
+
+## À retenir pour le QCM
+
+- **`LAG`** = ligne **précédente** ; **`LEAD`** = ligne **suivante** ;
+- `PARTITION BY` découpe la fenêtre (ici par station) ;
+- `ORDER BY` fixe l'ordre temporel dans chaque partition.
+
+En une phrase : **`LAG(..., 1) OVER (...)` compare chaque snapshot au précédent dans l'historique d'une station.**
+
+---
+
+<a id="44-notes-qcm--row_number-over-et-classement"></a>
+
+# 44. Notes QCM — `ROW_NUMBER() OVER` et classement
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q18 — Session 3  
+> Voir aussi : [§27 — classement par heure](#27-row_number--classement-par-heure) · [MEM-02](MEM-02SPARK_Window-Functions.md)
+
+## Question (QCM Q18)
+
+`ROW_NUMBER() OVER (PARTITION BY heure ORDER BY taux DESC)` sert surtout à :
+
+---
+
+## Réponse
+
+**Attribuer un rang (1, 2, 3…) à chaque ligne dans un groupe.**
+
+`ROW_NUMBER()` numérote les lignes **à l'intérieur** de chaque partition définie par `PARTITION BY`. L'ordre du classement est fixé par `ORDER BY` : ici, le taux le plus élevé obtient le rang **1**.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Calculer une moyenne mobile | c'est `AVG(...) OVER (... ROWS BETWEEN ...)` ([§26](#26-spark-sql-over--window-w--lag-lead-moyenne-mobile)) |
+| Fusionner deux tables Delta | c'est `MERGE INTO` ([§32](#32-merge-into-en-spark-sql--chemin-absolu-delta) · [§47](#47-notes-qcm--merge-into-et-upserts-delta)) |
+| Lire une version antérieure d'une table | c'est le time travel Delta `VERSION AS OF` ([§33](#33-describe-history-et-time-travel-versionasof)) |
+
+---
+
+## Exemple de code (Session 3)
+
+```sql
+WITH taux_horaire AS (
+    SELECT
+        station_id,
+        nom_station,
+        heure,
+        ROUND(AVG(taux_occupation), 4) AS taux_moyen
+    FROM disponibilite
+    GROUP BY station_id, nom_station, heure
+)
+SELECT
+    station_id,
+    nom_station,
+    heure,
+    taux_moyen,
+    ROW_NUMBER() OVER w AS rang
+FROM taux_horaire
+WINDOW w AS (PARTITION BY heure ORDER BY taux_moyen DESC)
+ORDER BY heure, rang
+```
+
+| `heure` | `station_id` | `taux_moyen` | `rang` |
+|---|---|---|---|
+| 8 | 101 | 0.72 | **1** |
+| 8 | 205 | 0.65 | **2** |
+| 8 | 312 | 0.58 | **3** |
+| 9 | 205 | 0.81 | **1** |
+| 9 | 101 | 0.70 | **2** |
+
+Le rang **repart à 1** à chaque nouvelle heure (`PARTITION BY heure`).
+
+---
+
+## Lire la clause `OVER`
+
+```sql
+ROW_NUMBER() OVER (PARTITION BY heure ORDER BY taux DESC)
+```
+
+| Morceau | Rôle |
+|---|---|
+| `ROW_NUMBER()` | attribue 1, 2, 3… **sans ex æquo** |
+| `PARTITION BY heure` | un classement **indépendant** par heure |
+| `ORDER BY taux DESC` | la ligne avec le plus grand `taux` est rang **1** |
+
+Complément : `RANK()` et `DENSE_RANK()` gèrent les **ex æquo** (même valeur → même rang, puis saut ou pas selon la fonction).
+
+---
+
+## Schéma mental
+
+```
+Heure 8h :  station A (0.72) → rang 1
+            station B (0.65) → rang 2
+            station C (0.58) → rang 3
+
+Heure 9h :  (repart à 1 pour chaque station de 9h)
+```
+
+---
+
+## À retenir pour le QCM
+
+- **`ROW_NUMBER()`** = rang unique 1, 2, 3… **dans chaque groupe** ;
+- **`PARTITION BY`** = définit le groupe (ici l'heure) ;
+- **`ORDER BY`** = définit qui est 1er, 2e, 3e…
+
+En une phrase : **`ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` classe les lignes à l'intérieur de chaque groupe.**
+
+---
+
+<a id="45-notes-qcm--versionasof-et-time-travel-delta"></a>
+
+# 45. Notes QCM — `versionAsOf` et time travel Delta
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q19 — Session 3  
+> Voir aussi : [§33 — `DESCRIBE HISTORY` et time travel](#33-describe-history-et-time-travel-versionasof)
+
+## Question (QCM Q19)
+
+Pour relire une table Delta **telle qu'elle était** à la version 3, on utilise :
+
+---
+
+## Réponse
+
+**`.option("versionAsOf", 3)`**
+
+Delta Lake conserve un **historique de versions** : chaque `WRITE`, `MERGE`, `DELETE`, etc. crée une nouvelle version. L'option `versionAsOf` indique à Spark de lire la table **à un instant passé** du journal (`_delta_log`), sans modifier les données actuelles.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| `.mode("overwrite")` | écrase la table à l'**écriture**, ne lit pas une version passée |
+| `MERGE INTO … WHEN NOT MATCHED` | met à jour / insère des lignes, ne voyage pas dans le temps ([§47](#47-notes-qcm--merge-into-et-upserts-delta)) |
+| `repartition(3)` | redistribue les données sur **3 partitions**, sans lien avec les versions Delta |
+
+---
+
+## Exemple de code (Session 3)
+
+### Lecture DataFrame API
+
+```python
+delta_path = str(DELTA_DISPONIBLE.resolve())
+
+# Table actuelle (dernière version)
+df_actuelle = spark.read.format("delta").load(delta_path)
+
+# Table telle qu'elle était à la version 3
+df_v3 = (
+    spark.read.format("delta")
+    .option("versionAsOf", 3)
+    .load(delta_path)
+)
+```
+
+### Variante SQL
+
+```sql
+SELECT *
+FROM delta.`/chemin/vers/disponibilite`
+VERSION AS OF 3
+```
+
+Les deux syntaxes posent la même question : **« quelles étaient les lignes visibles à la version 3 ? »**
+
+---
+
+## Lire le code ligne par ligne
+
+```python
+spark.read.format("delta")      # lecteur Delta (pas Parquet brut)
+    .option("versionAsOf", 3)   # version cible dans l'historique
+    .load(delta_path)           # chemin de la table Delta
+```
+
+| Morceau | Rôle |
+|---|---|
+| `format("delta")` | active le moteur Delta (journal + fichiers Parquet) |
+| `versionAsOf`, 3 | pointe sur la **3ᵉ version** enregistrée |
+| `load(...)` | construit un DataFrame **figé** à cet instant |
+
+---
+
+## Contexte métier (après un `MERGE`)
+
+Dans le notebook Session 3, on compare souvent **avant / après** une correction :
+
+```python
+derniere_op = (
+    spark.sql(f"DESCRIBE HISTORY delta.`{delta_path}`")
+    .orderBy(F.col("version").desc())
+    .first()
+)
+
+version_avant_merge = derniere_op.version - 1
+
+df_avant = (
+    spark.read.format("delta")
+    .option("versionAsOf", version_avant_merge)
+    .load(delta_path)
+)
+```
+
+`DESCRIBE HISTORY` liste les versions ; `versionAsOf` permet de **revenir** à l'une d'elles.
+
+---
+
+## Schéma mental
+
+```
+_delta_log/  →  v0  v1  v2  v3  v4  (dernière)
+                      ↑
+              versionAsOf = 3
+              (on lit l'état à ce moment-là)
+```
+
+---
+
+## À retenir pour le QCM
+
+- **`versionAsOf`** = time travel **par numéro de version** ;
+- équivalent SQL : `VERSION AS OF n` ;
+- complément utile : `DESCRIBE HISTORY` pour connaître les versions disponibles.
+
+En une phrase : **`.option("versionAsOf", 3)` relit la table Delta exactement comme elle était à la version 3.**
+
+---
+
+<a id="46-notes-qcm--describe-history-et-versions-delta"></a>
+
+# 46. Notes QCM — `DESCRIBE HISTORY` et versions Delta
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q20 — Session 3  
+> Voir aussi : [§33 — `DESCRIBE HISTORY` et time travel](#33-describe-history-et-time-travel-versionasof) · [§45 — `versionAsOf`](#45-notes-qcm--versionasof-et-time-travel-delta)
+
+## Question (QCM Q20)
+
+La commande `DESCRIBE HISTORY` sur une table Delta permet de :
+
+---
+
+## Réponse
+
+**Lister les versions et opérations (`WRITE`, `MERGE`, `DELETE`, …).**
+
+Chaque modification sur une table Delta crée une **nouvelle version** dans le journal `_delta_log`. `DESCRIBE HISTORY` affiche ce journal sous forme de tableau : numéro de version, type d'opération, horodatage, etc.
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Supprimer les anciennes partitions | c'est une opération de maintenance (`VACUUM`, `DELETE`, …) |
+| Arrêter une requête streaming | c'est `query.stop()` ou `spark.streams.get(...).stop()` (Session 4) |
+| Convertir Parquet en CSV | c'est `df.write.csv(...)` ou une conversion manuelle |
+
+---
+
+## Exemple de code (Session 3)
+
+```python
+delta_path = str(DELTA_DISPONIBLE.resolve())
+
+historique = spark.sql(f"DESCRIBE HISTORY delta.`{delta_path}`")
+historique.select("version", "timestamp", "operation").show(truncate=False)
+```
+
+**Résultat typique :**
+
+```text
++-------+-------------------+---------+
+|version|timestamp          |operation|
++-------+-------------------+---------+
+|0      |2024-01-15 10:00:00|WRITE    |
+|1      |2024-01-15 11:30:00|WRITE    |
+|2      |2024-01-15 14:00:00|MERGE    |
+|3      |2024-01-15 16:45:00|MERGE    |
++-------+-------------------+---------+
+```
+
+| Colonne | Signification |
+|---|---|
+| `version` | numéro de version (0, 1, 2, …) — utilisé par `versionAsOf` ([§45](#45-notes-qcm--versionasof-et-time-travel-delta)) |
+| `operation` | type d'action : `WRITE`, `MERGE`, `DELETE`, `UPDATE`, … |
+| `timestamp` | moment de l'opération |
+
+---
+
+## Lire la commande
+
+```python
+spark.sql(f"DESCRIBE HISTORY delta.`{delta_path}`")
+```
+
+| Morceau | Rôle |
+|---|---|
+| `DESCRIBE HISTORY` | commande SQL Delta dédiée à l'**audit** du journal |
+| `delta.\`...\`` | chemin absolu vers la table Delta |
+| résultat | DataFrame Spark → `.show()`, filtres, jointures possibles |
+
+`DESCRIBE HISTORY` est une **commande autonome** : on ne peut pas l'imbriquer dans un `FROM (...)`.
+
+---
+
+## Enchaînement avec le time travel
+
+```python
+derniere_op = (
+    spark.sql(f"DESCRIBE HISTORY delta.`{delta_path}`")
+    .orderBy(F.col("version").desc())
+    .select("version", "operation")
+    .first()
+)
+
+if derniere_op.operation == "MERGE":
+    version_avant = derniere_op.version - 1
+    df_avant = (
+        spark.read.format("delta")
+        .option("versionAsOf", version_avant)
+        .load(delta_path)
+    )
+```
+
+1. **`DESCRIBE HISTORY`** → identifier la version et l'opération ;
+2. **`versionAsOf`** → relire l'état à cette version.
+
+---
+
+## Schéma mental
+
+```
+_delta_log/
+  ├── 00000000000000000000.json  → v0  WRITE
+  ├── 00000000000000000001.json  → v1  WRITE
+  ├── 00000000000000000002.json  → v2  MERGE
+  └── ...
+
+DESCRIBE HISTORY  →  tableau lisible de tout ça
+```
+
+---
+
+## À retenir pour le QCM
+
+- **`DESCRIBE HISTORY`** = journal des versions Delta ;
+- on y voit les **opérations** (`WRITE`, `MERGE`, …) et les **numéros de version** ;
+- complément : **`versionAsOf`** pour relire une version passée.
+
+En une phrase : **`DESCRIBE HISTORY` liste l'historique des modifications d'une table Delta.**
+
+---
+
+<a id="47-notes-qcm--merge-into-et-upserts-delta"></a>
+
+# 47. Notes QCM — `MERGE INTO` et upserts Delta
+
+> QCM : [`qcm-etudiants.md`](qcm-etudiants.md) · Q21 — Session 3  
+> Voir aussi : [§32 — `MERGE INTO` en Spark SQL](#32-merge-into-en-spark-sql--chemin-absolu-delta)
+
+## Question (QCM Q21)
+
+`MERGE INTO` sur une table Delta est particulièrement utile pour :
+
+---
+
+## Réponse
+
+**Faire des upserts (mettre à jour les lignes existantes, insérer les nouvelles).**
+
+Un **upsert** = **UP**date + in**SERT** : si la clé existe déjà dans la table cible → **mise à jour** ; sinon → **insertion**. C'est le cas typique des pipelines incrémentaux (corrections de données, nouveaux snapshots).
+
+Ce n'est **pas** :
+
+| Réponse piège | Pourquoi |
+|---|---|
+| Lire un fichier JSON ligne par ligne | c'est `spark.read.json(...)` ou l'API RDD |
+| Remplacer le driver Python | le driver coordonne Spark, il n'est pas remplacé par `MERGE` |
+| Désactiver le watermark | le watermark concerne le **streaming** (Session 4), pas `MERGE INTO` |
+
+---
+
+## Exemple de code (Session 3)
+
+```python
+delta_path = str(DELTA_DISPONIBLE.resolve())
+batch_entrant.createOrReplaceTempView("batch_entrant")
+
+spark.sql(f"""
+    MERGE INTO delta.`{delta_path}` AS cible
+    USING batch_entrant AS source
+    ON  cible.station_id = source.station_id
+    AND cible.horodatage = source.horodatage
+    WHEN MATCHED THEN
+        UPDATE SET *
+    WHEN NOT MATCHED THEN
+        INSERT *
+""")
+```
+
+| Clause | Effet |
+|---|---|
+| `ON cible.station_id = source.station_id AND …` | clé de correspondance (ici station + horodatage) |
+| `WHEN MATCHED THEN UPDATE SET *` | **met à jour** la ligne existante |
+| `WHEN NOT MATCHED THEN INSERT *` | **insère** une nouvelle ligne |
+
+---
+
+## Scénario métier (Vélib')
+
+```
+Table Delta (cible)          Batch entrant (source)
+─────────────────────        ──────────────────────
+station 101, 08:00, 0.40     station 101, 08:00, 0.55  → MATCHED  → UPDATE
+station 101, 08:10, 0.48     station 101, 08:20, 0.62  → NOT MATCHED → INSERT
+```
+
+- correction d'un taux déjà présent → **UPDATE** ;
+- nouveau snapshot jamais vu → **INSERT**.
+
+Chaque `MERGE` crée une **nouvelle version** Delta, visible via `DESCRIBE HISTORY` ([§46](#46-notes-qcm--describe-history-et-versions-delta)).
+
+---
+
+## Lire la commande
+
+```sql
+MERGE INTO delta.`...` AS cible
+USING source AS source
+ON  <clé de jointure>
+WHEN MATCHED THEN UPDATE SET ...
+WHEN NOT MATCHED THEN INSERT ...
+```
+
+| Mot-clé | Rôle |
+|---|---|
+| `MERGE INTO` | opération d'**upsert** atomique sur Delta |
+| `USING` | jeu de données entrant (batch, vue temporaire, autre table) |
+| `WHEN MATCHED` | branche **mise à jour** |
+| `WHEN NOT MATCHED` | branche **insertion** |
+
+---
+
+## À retenir pour le QCM
+
+- **`MERGE INTO`** = upsert natif Delta (UPDATE + INSERT en une transaction) ;
+- indispensable pour les **mises à jour incrémentales** sans réécrire toute la table ;
+- distinct du time travel (`versionAsOf`, [§45](#45-notes-qcm--versionasof-et-time-travel-delta)).
+
+En une phrase : **`MERGE INTO` met à jour les lignes existantes et insère les nouvelles en une seule opération ACID.**

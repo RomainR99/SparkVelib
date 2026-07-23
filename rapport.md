@@ -11,9 +11,9 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
-**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes explicatives §40–§47](#annexes--notes-qcm-sessions-14)
+**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes §40–§47](#annexes--notes-qcm-sessions-14) · [Python §48](#annexes--python-rappels)
 
-**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [QCM](#annexes--notes-qcm-sessions-14) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
+**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
 
 ## Sommaire
 
@@ -110,6 +110,12 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 46. [Notes QCM — `DESCRIBE HISTORY` et versions Delta](#46-notes-qcm--describe-history-et-versions-delta)
 47. [Notes QCM — `MERGE INTO` et upserts Delta](#47-notes-qcm--merge-into-et-upserts-delta)
 
+<a id="annexes--python-rappels"></a>
+
+### Annexes — Python (rappels)
+
+48. [Générateurs Python — `yield` vs `return`](#48-générateurs-python--yield-vs-return)
+
 > Les questions Q1–Q7, Q9–Q10, Q12–Q15 et Q22–Q34 sont couvertes par les sections thématiques ci-dessus (sans note QCM dédiée pour l'instant).
 
 ## Parcours du pipeline (liens entre sections)
@@ -202,6 +208,8 @@ raw_rdd = sc.textFile(str(HISTORIQUE_STATIONS_CSV))
 - `sc.textFile(...)` demande à Spark : « prépare-moi un RDD à partir de ce fichier texte ».
 
 À ce stade : **aucune ligne n'est lue**, **aucun comptage**, **aucun affichage**. C'est une **transformation paresseuse** (*lazy*).
+
+> **Rappel Python :** cette idée de « préparer un calcul sans tout exécuter tout de suite » ressemble aux **générateurs** (`yield`). Voir [§48](#48-générateurs-python--yield-vs-return).
 
 ---
 
@@ -342,6 +350,9 @@ Les confondre serait trompeur dans cette cellule. `spark.sql.shuffle.partitions`
 
 # 3. Filtrage d'un RDD avec `filter()` (en-tête)
 
+> Notebook : `Spark_DIA3_Session_1.ipynb` — Partie 1, retrait de l'en-tête CSV  
+> Voir aussi : [§1 `textFile`](#1-chargement-dun-csv-avec-textfile) · [§4 `print(RDD)`](#4-affichage-dun-rdd-pythonrdd26)
+
 ## Question
 
 Que fait la ligne suivante ?
@@ -354,41 +365,69 @@ data_rdd = raw_rdd.filter(lambda line: line != entete)
 
 ## Réponse
 
-Cette ligne crée un **nouveau RDD** (`data_rdd`) à partir de `raw_rdd`, en **conservant uniquement les lignes différentes de `entete`**.
+Cette ligne **enlève l'en-tête CSV** du RDD : elle crée un **nouveau RDD** (`data_rdd`) qui conserve uniquement les lignes **différentes** de `entete`.
 
 ---
 
-## 1. Décomposition
+## 1. Décomposition (tableau)
 
-**`raw_rdd`** — RDD contenant toutes les lignes brutes du CSV, une chaîne de caractères par ligne.
+| Morceau | Rôle |
+|---|---|
+| `raw_rdd` | toutes les lignes du fichier (y compris la 1ʳᵉ : noms de colonnes ou 1ʳᵉ observation) |
+| `entete` | valeur de `raw_rdd.first()` — la **première ligne** du fichier |
+| `.filter(...)` | transformation : ne garde que les lignes qui passent le test |
+| `lambda line: line != entete` | pour chaque ligne : `True` → gardée, `False` → rejetée |
+| `data_rdd` | nouveau RDD **sans** cette ligne d'en-tête (plan de calcul seulement) |
 
-**`entete`** — Valeur obtenue à l'exercice 5 avec `first()` : la **première ligne** du fichier.
-
-**`lambda line: line != entete`** — Fonction testée sur **chaque ligne** :
-- si la ligne **n'est pas** égale à `entete` → `True` → la ligne est **conservée** ;
-- si la ligne **est** égale à `entete` → `False` → la ligne est **rejetée**.
-
-**`filter(...)`** — Transformation **paresseuse** : Spark enregistre la règle (« garder les lignes où `line != entete` ») sans lire ni filtrer le fichier immédiatement.
-
-**`data_rdd = ...`** — Le **plan de calcul** du RDD filtré est stocké dans une nouvelle variable. `raw_rdd` n'est **pas modifié** (immutabilité des RDD).
+`raw_rdd` n'est **pas modifié** (immutabilité des RDD).
 
 ---
 
-## 2. Ce que ça ne fait pas
+## 2. Exemple concret
+
+```text
+raw_rdd :
+  "station_id,name,..."   ← entete  →  exclue
+  "101,Station A,..."     ← data    →  gardée
+  "205,Station B,..."     ← data    →  gardée
+
+data_rdd :
+  "101,Station A,..."
+  "205,Station B,..."
+```
+
+Après ça, `data_rdd` ne contient que des lignes de **données**, prêtes pour le `map` / parsing.
+
+---
+
+## 3. Points importants
+
+- **Lazy** : `filter` ne lit pas encore le fichier ; le calcul partira à la prochaine **action** (`count`, `take`, etc.).
+- On filtre par **égalité de chaîne** avec la 1ʳᵉ ligne, **pas** par numéro de ligne. Si la même chaîne réapparaît ailleurs (rare), elle serait aussi retirée.
+- **`print(data_rdd)`** affiche une référence RDD (ex. `MapPartitionsRDD[...] at filter`), **pas** les données — c'est normal.
+
+Pour un résultat concret :
+
+- `data_rdd.count()` → nombre de lignes restantes ;
+- `data_rdd.take(5)` → aperçu de quelques lignes.
+
+---
+
+## 4. Ce que ça ne fait pas
 
 - **Ne lit pas** le fichier sur le disque tout de suite ;
 - **N'affiche pas** les lignes filtrées ;
 - **Ne compte pas** les résultats.
 
-Tant qu'il n'y a pas d'**action** (`count()`, `take()`, `collect()`…), rien n'est exécuté.
+Tant qu'il n'y a pas d'**action**, rien n'est exécuté.
 
 ---
 
-## 3. Intention pédagogique
+## 5. Intention pédagogique
 
 Dans un CSV **avec en-tête**, la première ligne ressemble à :
 
-```
+```text
 horodatage,capacite,velos_meca,...
 ```
 
@@ -398,18 +437,7 @@ Avec **`historique_stations.csv`**, il n'y a **pas de ligne d'en-tête** : `ente
 
 ---
 
-## 4. Que voit-on après `filter` ?
-
-**`print(data_rdd)`** affiche une **référence RDD** (ex. `MapPartitionsRDD[...] at filter`), pas les données. C'est normal : `filter` est une transformation, pas une action.
-
-Pour obtenir un résultat concret, il faut une **action** :
-
-- **`data_rdd.count()`** → nombre de lignes restantes ;
-- **`data_rdd.take(5)`** → aperçu de quelques lignes.
-
----
-
-## 5. Schéma du flux
+## 6. Schéma du flux
 
 ```
 raw_rdd  (toutes les lignes)
@@ -425,7 +453,7 @@ résultat remonté au notebook
 
 ---
 
-## 6. Synthèse
+## 7. Synthèse
 
 `filter(lambda line: line != entete)` dit à Spark : **« à partir de maintenant, ne considère que les lignes qui ne sont pas la première »**. Le filtrage réel n'a lieu qu'au moment d'une action — même principe paresseux que pour `textFile()`.
 
@@ -5281,3 +5309,123 @@ WHEN NOT MATCHED THEN INSERT ...
 - distinct du time travel (`versionAsOf`, [§45](#45-notes-qcm--versionasof-et-time-travel-delta)).
 
 En une phrase : **`MERGE INTO` met à jour les lignes existantes et insère les nouvelles en une seule opération ACID.**
+
+---
+
+<a id="48-générateurs-python--yield-vs-return"></a>
+
+# 48. Générateurs Python — `yield` vs `return`
+
+> Rappel Python utile pour Session 1 (paresse des RDD)  
+> Voir aussi : [§1 `textFile` lazy](#1-chargement-dun-csv-avec-textfile) · [§3 `filter` lazy](#3-filtrage-dun-rdd-avec-filter-en-tête)
+
+## Question
+
+Qu'est-ce qu'un **générateur** en Python, et pourquoi utiliser `yield` plutôt que `return` ?
+
+---
+
+## Réponse
+
+Un **générateur** est une fonction qui produit des valeurs **une par une**, à la demande, au lieu de construire toute la collection en mémoire d'un coup.
+
+- **`return`** : calcule **tout**, renvoie **un** résultat, puis la fonction **se termine**.
+- **`yield`** : produit **une** valeur, **met la fonction en pause**, et reprend plus tard au même endroit.
+
+---
+
+## 1. `return` — tout d'un coup
+
+```python
+def nombres_return(n):
+    resultat = []
+    for i in range(n):
+        resultat.append(i)
+    return resultat   # liste complète en mémoire
+
+liste = nombres_return(1_000_000)  # 1 million d'entiers déjà créés
+```
+
+Avantage : simple.  
+Inconvénient : **occupe la mémoire** pour toute la liste, même si on n'utilise que les 10 premiers éléments.
+
+---
+
+## 2. `yield` — une valeur à la fois
+
+```python
+def nombres_yield(n):
+    for i in range(n):
+        yield i   # produit i, puis attend le prochain appel
+
+gen = nombres_yield(1_000_000)  # presque rien en mémoire
+print(next(gen))  # 0
+print(next(gen))  # 1
+```
+
+| Appel | Effet |
+|---|---|
+| `nombres_yield(n)` | crée un **objet générateur** (pas encore de boucle complète) |
+| `next(gen)` ou `for x in gen` | exécute jusqu'au prochain `yield`, puis **pause** |
+| fin de la fonction | le générateur est **épuisé** (`StopIteration`) |
+
+On peut aussi itérer naturellement :
+
+```python
+for x in nombres_yield(5):
+    print(x)   # 0 1 2 3 4
+```
+
+---
+
+## 3. Pourquoi `yield` plutôt que `return` ?
+
+| Critère | `return` (liste) | `yield` (générateur) |
+|---|---|---|
+| Mémoire | charge **tout** | une valeur à la fois |
+| Moment du calcul | **immédiat** | **à la demande** (lazy) |
+| Réutilisable | oui (liste figée) | non (un générateur se consomme une fois) |
+| Cas d'usage | petits volumes, accès aléatoire | gros flux, pipelines, fichiers ligne à ligne |
+
+En résumé : on utilise `yield` quand on traite un **flux potentiellement grand** et qu'on ne veut pas tout stocker.
+
+---
+
+## 4. Lien avec Spark (Session 1)
+
+L'esprit est le même que les **transformations RDD** :
+
+| Python | Spark |
+|---|---|
+| `yield` / générateur | `textFile`, `filter`, `map` (transformations) |
+| `for` / `next` / `list(...)` | `count()`, `take()`, `collect()` (actions) |
+
+```text
+générateur :  défini → pause → produit une valeur quand on tire
+RDD        :  plan    → lazy  → calcule quand une action arrive
+```
+
+Ce n'est **pas** le même mécanisme interne, mais la même idée pédagogique : **décrire le calcul maintenant, exécuter seulement au besoin**.
+
+---
+
+## 5. Piège fréquent
+
+```python
+gen = nombres_yield(3)
+print(list(gen))  # [0, 1, 2]
+print(list(gen))  # []  ← déjà consommé !
+```
+
+Un générateur n'est en général **parcouru qu'une fois**. Pour recommencer, il faut **rappeler** la fonction (`nombres_yield(3)` à nouveau).
+
+---
+
+## À retenir
+
+- **`return`** = un résultat final, calcul terminé ;
+- **`yield`** = une série de résultats, calcul **paresseux** ;
+- utile pour les **gros volumes** et les **pipelines** ;
+- analogue mental aux RDD Spark : plan d'abord, exécution à l'action.
+
+En une phrase : **`yield` fabrique un générateur qui produit les valeurs à la demande, sans tout charger en mémoire comme le ferait `return` d'une liste.**

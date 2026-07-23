@@ -8,4 +8,4 @@ tqdm
 psutil
 folium
 mlflow
-setuptools>=69,<82  # distutils (retiré en Python 3.12 / setuptools 82+) requis par pyspark.ml
+setuptools==69.5.1  # distutils requis par pyspark.ml (absent en Python 3.12 ; retiré de setuptools>=82)

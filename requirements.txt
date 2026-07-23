@@ -1,8 +1,11 @@
-pandas 
+pandas
 requests
 pyspark>=3.5.3,<3.6
 delta-spark==3.2.1
-jupyter 
+jupyter
 findspark
 tqdm
 psutil
+folium
+mlflow
+setuptools>=69,<82  # distutils (retiré en Python 3.12 / setuptools 82+) requis par pyspark.ml

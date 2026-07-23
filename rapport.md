@@ -11,7 +11,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
-**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes §40–§47](#annexes--notes-qcm-sessions-14) · [Python §48](#annexes--python-rappels)
+**QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes §40–§47](#annexes--notes-qcm-sessions-14) · [Python §48–§50](#annexes--python-rappels)
 
 **Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
 
@@ -115,6 +115,8 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 ### Annexes — Python (rappels)
 
 48. [Générateurs Python — `yield` vs `return`](#48-générateurs-python--yield-vs-return)
+49. [`str(Path)` pour `sc.textFile()` — obligatoire ?](#49-strpath-pour-sctextfile--obligatoire-)
+50. [`HISTORIQUE_STATIONS_CSV` — d'où vient le chemin ?](#50-historique_stations_csv--dou-vient-le-chemin-)
 
 > Les questions Q1–Q7, Q9–Q10, Q12–Q15 et Q22–Q34 sont couvertes par les sections thématiques ci-dessus (sans note QCM dédiée pour l'instant).
 
@@ -140,7 +142,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 
 | Étape notebook | Section rapport |
 |---|---|
-| `sc.textFile()` | [§1 Chargement](#1-chargement-dun-csv-avec-textfile) · [§40 QCM `textFile`](#40-notes-qcm--textfile-et-rddstr) |
+| `sc.textFile()` | [§1 Chargement](#1-chargement-dun-csv-avec-textfile) · [§49 `str(Path)`](#49-strpath-pour-sctextfile--obligatoire-) · [§50 `HISTORIQUE_STATIONS_CSV`](#50-historique_stations_csv--dou-vient-le-chemin-) · [§40 QCM `textFile`](#40-notes-qcm--textfile-et-rddstr) |
 | `getNumPartitions()` / `repartition()` | [§2 Partitions](#2-partitions-rdd-vs-sparksqlshufflepartitions) |
 | `filter` en-tête | [§3 Filtrage en-tête](#3-filtrage-dun-rdd-avec-filter-en-tête) |
 | `print(rdd)` lazy | [§4 PythonRDD](#4-affichage-dun-rdd-pythonrdd26) |
@@ -203,8 +205,8 @@ raw_rdd = sc.textFile(str(HISTORIQUE_STATIONS_CSV))
 
 ## 1. Ce que fait l'appel
 
-- `HISTORIQUE_STATIONS_CSV` est un objet `Path` Python (ex. `historique_stations.csv`).
-- `str(...)` le convertit en chemin texte que la JVM Spark comprend.
+- `HISTORIQUE_STATIONS_CSV` est une **variable Python** (objet `Path`) définie en Section 0 — détail : [§50](#50-historique_stations_csv--dou-vient-le-chemin-).
+- `str(...)` le convertit en chemin texte que la JVM Spark comprend — détail : [§49](#49-strpath-pour-sctextfile--obligatoire-).
 - `sc.textFile(...)` demande à Spark : « prépare-moi un RDD à partir de ce fichier texte ».
 
 À ce stade : **aucune ligne n'est lue**, **aucun comptage**, **aucun affichage**. C'est une **transformation paresseuse** (*lazy*).
@@ -5429,3 +5431,205 @@ Un générateur n'est en général **parcouru qu'une fois**. Pour recommencer, i
 - analogue mental aux RDD Spark : plan d'abord, exécution à l'action.
 
 En une phrase : **`yield` fabrique un générateur qui produit les valeurs à la demande, sans tout charger en mémoire comme le ferait `return` d'une liste.**
+
+---
+
+<a id="49-strpath-pour-sctextfile--obligatoire-"></a>
+
+# 49. `str(Path)` pour `sc.textFile()` — obligatoire ?
+
+> Notebook : `Spark_DIA3_Session_1.ipynb` — chargement RDD  
+> Voir aussi : [§1 — Chargement CSV avec `textFile()`](#1-chargement-dun-csv-avec-textfile)
+
+## Question
+
+Dans :
+
+```python
+raw_rdd = sc.textFile(str(HISTORIQUE_STATIONS_CSV))
+```
+
+est-ce **obligatoire** d'écrire `str(...)` autour de `HISTORIQUE_STATIONS_CSV` ?
+
+---
+
+## Réponse
+
+**Non, ce n'est pas toujours obligatoire**, mais c'est **fortement recommandé** (et pédagogique).
+
+`HISTORIQUE_STATIONS_CSV` est un objet **`pathlib.Path`**, pas une chaîne.  
+`sc.textFile(...)` attend en pratique un **chemin texte** que la JVM Spark peut résoudre.
+
+---
+
+## 1. Les deux écritures
+
+| Écriture | Commentaire |
+|---|---|
+| `sc.textFile(str(HISTORIQUE_STATIONS_CSV))` | **Sûr et explicite** : on convertit le `Path` en `str` |
+| `sc.textFile(HISTORIQUE_STATIONS_CSV)` | **Peut marcher** selon la version PySpark (conversion automatique), mais moins clair / parfois fragile |
+
+---
+
+## 2. Pourquoi un `Path` en Section 0 ?
+
+Dans le notebook, les chemins sont définis avec `pathlib` :
+
+```python
+from pathlib import Path
+
+HISTORIQUE_STATIONS_CSV = Path("data") / "velib" / "raw" / "historique_stations.csv"
+# ou un chemin trouvé via next(...)
+```
+
+Avantages du `Path` :
+
+- joindre des dossiers avec `/` ;
+- tester `.exists()`, `.resolve()`, `.stat()` ;
+- rester portable entre macOS / Linux / Windows.
+
+Mais l'API RDD historique (`textFile`) parle plutôt en **strings**.
+
+---
+
+## 3. Ce que fait `str(...)`
+
+```python
+chemin = Path("data/velib/raw/historique_stations.csv")
+print(type(chemin))        # <class 'pathlib.PosixPath'>
+print(type(str(chemin)))   # <class 'str'>
+print(str(chemin))         # 'data/velib/raw/historique_stations.csv'
+```
+
+`str(Path)` = conversion **Python → texte de chemin** pour Spark / la JVM.
+
+---
+
+## 4. Schéma mental
+
+```
+HISTORIQUE_STATIONS_CSV          (Path Python)
+            │
+            ▼  str(...)
+"data/.../historique_stations.csv"   (str)
+            │
+            ▼  sc.textFile(...)
+        raw_rdd  (RDD[str], plan lazy)
+```
+
+---
+
+## À retenir
+
+- `str(...)` n'est **pas une contrainte Spark universelle** ;
+- ici, il sécurise le passage d'un **`Path`** vers `textFile` ;
+- garder `str(...)` dans le cours = code **lisible** et **robuste**.
+
+En une phrase : **`str(HISTORIQUE_STATIONS_CSV)` convertit le `Path` en chemin string pour `textFile` ; ce n'est pas toujours obligatoire, mais c'est la forme recommandée.**
+
+---
+
+<a id="50-historique_stations_csv--dou-vient-le-chemin-"></a>
+
+# 50. `HISTORIQUE_STATIONS_CSV` — d'où vient le chemin ?
+
+> Notebook : `Spark_DIA3_Session_1.ipynb` — Section 0 (chemins) + chargement RDD  
+> Voir aussi : [§1 — `textFile`](#1-chargement-dun-csv-avec-textfile) · [§49 — `str(Path)`](#49-strpath-pour-sctextfile--obligatoire-)
+
+## Question
+
+Dans :
+
+```python
+raw_rdd = sc.textFile(str(HISTORIQUE_STATIONS_CSV))
+```
+
+comment Python « sait » que cela pointe vers `historique_stations.csv` ?  
+`HISTORIQUE_STATIONS_CSV`, c'est quoi exactement ?
+
+---
+
+## Réponse
+
+`HISTORIQUE_STATIONS_CSV` n'est **pas** un mot magique connu de Python ou de Spark.  
+C'est une **variable Python** définie plus haut dans la cellule de configuration (Section 0).
+
+Le nom du fichier `historique_stations.csv` est **écrit explicitement** dans cette définition. Python ne le déduit pas à partir du nom de la variable.
+
+---
+
+## 1. Où c'est défini (Section 0)
+
+Dans le notebook, on trouve typiquement :
+
+```python
+HISTORIQUE_STATIONS_CSV = next(
+    (p for p in [
+        Path("historique_stations.csv"),
+        DATA_DIR / "velib" / "raw" / "historique_stations.csv",
+    ] if p.exists()),
+    Path("historique_stations.csv"),
+)
+```
+
+Ce code :
+
+1. teste plusieurs chemins possibles ;
+2. garde le **premier qui existe** sur le disque ;
+3. sinon retombe sur `Path("historique_stations.csv")` par défaut.
+
+Résultat : `HISTORIQUE_STATIONS_CSV` est un objet **`pathlib.Path`**, par exemple :
+
+```text
+data/velib/raw/historique_stations.csv
+```
+
+---
+
+## 2. Ce que fait `sc.textFile(str(HISTORIQUE_STATIONS_CSV))`
+
+| Étape | Rôle |
+|---|---|
+| `HISTORIQUE_STATIONS_CSV` | variable Python qui contient déjà le chemin |
+| `str(...)` | convertit le `Path` en chaîne (`"data/.../historique_stations.csv"`) |
+| `sc.textFile(...)` | Spark reçoit ce chemin texte et prépare un `RDD[str]` |
+
+Spark **ne connaît pas** le nom de la variable. Il reçoit seulement une **string** avec le chemin, et prépare la lecture de **ce** fichier-là.
+
+---
+
+## 3. Analogie
+
+```python
+mon_fichier = Path("data/velib/raw/historique_stations.csv")
+raw_rdd = sc.textFile(str(mon_fichier))
+```
+
+Même logique : la constante sert de **raccourci** pour ne pas réécrire le chemin partout (`exists()`, `open()`, `textFile()`, etc.).
+
+Les majuscules (`HISTORIQUE_STATIONS_CSV`) sont une convention Python : **valeur de configuration**, définie une fois en haut du notebook.
+
+---
+
+## 4. Schéma mental
+
+```
+Section 0
+  HISTORIQUE_STATIONS_CSV = Path(... / "historique_stations.csv")
+                │
+                ▼  (même objet réutilisé)
+sc.textFile(str(HISTORIQUE_STATIONS_CSV))
+                │
+                ▼
+           raw_rdd  (RDD[str], plan lazy)
+```
+
+---
+
+## À retenir
+
+- `HISTORIQUE_STATIONS_CSV` = **variable** (un `Path`), pas une API Spark ;
+- le lien avec `historique_stations.csv` vient de la **définition** en Section 0 ;
+- `textFile` ne voit que le **chemin string**, pas le nom de la constante.
+
+En une phrase : **Python sait que c'est `historique_stations.csv` parce que vous l'avez écrit dans la config ; `textFile` reçoit ensuite ce chemin via `str(HISTORIQUE_STATIONS_CSV)`.**

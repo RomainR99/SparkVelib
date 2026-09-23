@@ -127,7 +127,7 @@ def main() -> int:
     if not source.exists():
         print(
             f"[ERREUR] Source introuvable : {source.resolve()}\n"
-            "Exécutez Spark_DIA3_Session_2.ipynb §2.8 (Parquet consolidé) avant le simulateur.",
+            "Exécutez notebooks/Spark_DIA3_Session_2.ipynb §2.8 (Parquet consolidé) avant le simulateur.",
             file=sys.stderr,
         )
         return 1

@@ -1,7 +1,7 @@
 # SparkVelib — ClimaCity Paris (PySpark)
 
 Projet de traitement de données Vélib' avec Apache Spark et PySpark.  
-Notebook principal : `Spark_DIA3_Session_1.ipynb` · Notes détaillées : [`rapport.md`](rapport.md)
+Notebook principal : `notebooks/Spark_DIA3_Session_1.ipynb` · Notes détaillées : [`markdown/rapport.md`](markdown/rapport.md)
 
 ---
 
@@ -17,7 +17,7 @@ pip install -r requirements.txt
 # Placer historique_stations.csv à la racine du projet (ou dans data/velib/raw/)
 
 # 3. Lancer Jupyter
-jupyter notebook Spark_DIA3_Session_1.ipynb
+jupyter notebook notebooks/Spark_DIA3_Session_1.ipynb
 ```
 
 Choisir le kernel **venv-spark** dans Jupyter.
@@ -79,8 +79,8 @@ Si vous ne pouvez pas changer de Java tout de suite, la **Section 0** de `Spark_
 
 | Fichier | Description |
 |---------|-------------|
-| `Spark_DIA3_Session_1.ipynb` | Session 1 — API RDD |
-| `rapport.md` | Explications pas à pas du notebook |
+| `notebooks/Spark_DIA3_Session_1.ipynb` | Session 1 — API RDD |
+| `markdown/rapport.md` | Explications pas à pas du notebook |
 | `historique_stations.csv` | Données Vélib' (~376 Mo, non versionné) |
-| `TUT-01-SPARK_Ligne-de-Commande.md` | Tutoriel Spark en ligne de commande |
+| `markdown/TUT-01-SPARK_Ligne-de-Commande.md` | Tutoriel Spark en ligne de commande |
 | `requirements.txt` | Dépendances Python (pyspark, jupyter, psutil, …) |

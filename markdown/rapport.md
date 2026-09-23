@@ -1,19 +1,20 @@
-# Rapport — Spark ClimaCity Paris (Sessions 1–4)
+# Rapport — Spark ClimaCity Paris (Sessions 1–5)
 
 Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 | Notebook | Thème | Sections rapport |
 |---|---|---|
-| [`Spark_DIA3_Session_1.ipynb`](Spark_DIA3_Session_1.ipynb) | API RDD | [§1–§10](#session-1--api-rdd) |
-| [`Spark_DIA3_Session_2.ipynb`](Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | [§11–§12](#session-2--dataframe--parquet) |
-| [`Spark_DIA3_Session_3.ipynb`](Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
-| [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
+| [`Spark_DIA3_Session_1.ipynb`](../notebooks/Spark_DIA3_Session_1.ipynb) | API RDD | [§1–§10](#session-1--api-rdd) |
+| [`Spark_DIA3_Session_2.ipynb`](../notebooks/Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | [§11–§12](#session-2--dataframe--parquet) |
+| [`Spark_DIA3_Session_3.ipynb`](../notebooks/Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
+| [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
+| [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) | MLlib, compatibilité Python | [§51](#session-5--mllib-et-compatibilité-python) |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
 **QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes §40–§47](#annexes--notes-qcm-sessions-14) · [Python §48–§50](#annexes--python-rappels)
 
-**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
+**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [Session 5](#session-5--mllib-et-compatibilité-python) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
 
 ## Sommaire
 
@@ -85,6 +86,12 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 36. [Driver vs workers — rôles dans Spark](#36-driver-vs-workers--rôles-dans-spark)
 37. [Delta Spark — à quoi ça sert en Session 4 ?](#37-delta-spark--à-quoi-ça-sert-en-session-4)
 38. [Sink Delta des fenêtres glissantes (`writeStream`)](#38-sink-delta-des-fenêtres-glissantes-writestream)
+
+<a id="session-5--mllib-et-compatibilité-python"></a>
+
+### Session 5 — MLlib (compatibilité Python)
+
+51. [Comparateurs Python (`__eq__`, `__lt__`, …) et `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge)
 
 <a id="annexes--notes-qcm-sessions-14"></a>
 
@@ -180,6 +187,12 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | fenêtres glissantes + sink Delta | [§38 Sink Delta fenêtres](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§37 Delta Spark](#37-delta-spark--à-quoi-ça-sert-en-session-4) · [§39 ACID](#39-transactions-acid--pourquoi-delta-lake-plutôt-que-parquet-seul) |
 | checkpoint, watermark, `foreachBatch` | [§38](#38-sink-delta-des-fenêtres-glissantes-writestream) · [§36](#36-driver-vs-workers--rôles-dans-spark) |
 | fin de session (`spark.stop()`) | [§34](#34-simulateur-de-flux--cellule-de-vérification-session-4) |
+
+### Session 5 — MLlib (compatibilité Python)
+
+| Étape notebook | Section rapport |
+|---|---|
+| Section 0 — filet `LooseVersion` (Python 3.12) | [§51 Comparateurs `__eq__` / `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge) |
 
 ---
 
@@ -3872,7 +3885,7 @@ En une phrase : **`DESCRIBE HISTORY` identifie la version juste avant le MERGE ;
 
 # 34. Simulateur de flux + cellule de vérification Session 4
 
-> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.2 Le simulateur de flux (première cellule code)
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) — §2.2 Le simulateur de flux (première cellule code)
 
 ## Note pratique — deux actions en parallèle
 
@@ -3930,7 +3943,7 @@ En une phrase : **lance le simulateur dans le terminal, puis exécute la cellule
 
 # 35. Sink console PySpark vs simulation Python pure (§2.4)
 
-> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.4 Première requête : sink console  
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) — §2.4 Première requête : sink console  
 > Voir aussi : [§34 — Simulateur + vérification](#34-simulateur-de-flux--cellule-de-vérification-session-4)
 
 ## Question
@@ -4069,7 +4082,7 @@ Les deux cellules sont **complémentaires** : Python explique *quoi* est calcul�
 
 # 36. Driver vs workers — rôles dans Spark
 
-> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — Section 0 (initialisation)  
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) — Section 0 (initialisation)  
 > Voir aussi : [§10 — Mac Apple Silicon, Java arm64 et `psutil`](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
 
 ## Question
@@ -4156,7 +4169,7 @@ En local, tout tourne sur la même machine — mais la séparation des rôles re
 
 # 37. Delta Spark — à quoi ça sert en Session 4 ?
 
-> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — Section 0, fenêtres glissantes, sink Delta  
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) — Section 0, fenêtres glissantes, sink Delta  
 > Voir aussi : [§13 — Delta Lake et le package `delta-spark`](#13-delta-lake-et-le-package-delta-spark)
 
 ## Question
@@ -4228,7 +4241,7 @@ En une phrase : **Spark calcule ; Delta Spark garantit que ce qui est écrit (ba
 
 # 38. Sink Delta des fenêtres glissantes (`writeStream`)
 
-> Notebook : [`Spark_DIA3_Session_4.ipynb`](Spark_DIA3_Session_4.ipynb) — §2.5 Fenêtres glissantes, écriture Delta  
+> Notebook : [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) — §2.5 Fenêtres glissantes, écriture Delta  
 > Voir aussi : [§37 — Delta Spark en Session 4](#37-delta-spark--à-quoi-ça-sert-en-session-4)
 
 ## Question
@@ -5633,3 +5646,99 @@ sc.textFile(str(HISTORIQUE_STATIONS_CSV))
 - `textFile` ne voit que le **chemin string**, pas le nom de la constante.
 
 En une phrase : **Python sait que c'est `historique_stations.csv` parce que vous l'avez écrit dans la config ; `textFile` reçoit ensuite ce chemin via `str(HISTORIQUE_STATIONS_CSV)`.**
+
+---
+
+<a id="51-comparateurs-python-eq-lt-le-gt-ge"></a>
+
+# 51. Comparateurs Python — `__eq__` / `__lt__` / `__le__` / `__gt__` / `__ge__`
+
+> Notebook : [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) — Section 0 (compatibilité Python 3.12)  
+> Voir aussi : [§10 Mac Apple Silicon](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
+
+## Question
+
+Que font ces méthodes dans le filet de compatibilité `LooseVersion` ?
+
+```python
+def __eq__(self, other): return self._cmp(other) == 0
+def __lt__(self, other): return self._cmp(other) < 0
+def __le__(self, other): return self._cmp(other) <= 0
+def __gt__(self, other): return self._cmp(other) > 0
+def __ge__(self, other): return self._cmp(other) >= 0
+```
+
+---
+
+## Réponse
+
+Ces cinq méthodes **ne font pas** le vrai travail de comparaison. Elles exposent seulement `_cmp` sous la forme que Python attend pour `==`, `<`, `<=`, `>`, `>=`.
+
+---
+
+## 1. Contexte dans le notebook
+
+Ce bloc est un **filet de compatibilité Python 3.12**. PySpark importe encore `distutils.version.LooseVersion`, retiré de la bibliothèque standard. Si l'import échoue, le notebook crée une classe `LooseVersion` de remplacement, puis l'injecte dans `sys.modules`.
+
+`_cmp` compare deux versions et renvoie un entier à la manière de C / Python 2 :
+
+| Résultat de `_cmp` | Signification |
+|---|---|
+| `0` | les deux versions sont **égales** |
+| `-1` | `self` est **plus petite** |
+| `1` | `self` est **plus grande** |
+
+Exemple : `"1.9"` vs `"1.10"` → tuples `(1, 9)` et `(1, 10)` → `_cmp` renvoie `-1`.
+
+---
+
+## 2. Ce que font ces méthodes
+
+Ce sont les **méthodes magiques** (dunder) que Python appelle automatiquement :
+
+| Écriture | Méthode appelée | Condition |
+|---|---|---|
+| `a == b` | `__eq__` | `_cmp` vaut `0` |
+| `a < b` | `__lt__` | `_cmp` est `< 0` |
+| `a <= b` | `__le__` | `_cmp` est `<= 0` |
+| `a > b` | `__gt__` | `_cmp` est `> 0` |
+| `a >= b` | `__ge__` | `_cmp` est `>= 0` |
+
+Sans elles, on pourrait appeler `_cmp` à la main, mais `LooseVersion("1.9") < LooseVersion("1.10")` ne marcherait pas.
+
+---
+
+## 3. Pourquoi les 5 alors que `_cmp` suffit ?
+
+Python 3 n'a plus le vieux `__cmp__` unique. Il faut définir les opérateurs un par un. Ici, on évite de recopier la logique : chaque opérateur se contente de **traduire** le résultat de `_cmp` en `True` / `False`.
+
+C'est ce dont PySpark a besoin, par exemple pour tester :
+
+```python
+LooseVersion(numpy.__version__) >= LooseVersion("1.9")
+```
+
+---
+
+## Schéma mental
+
+```
+LooseVersion("1.9")  <  LooseVersion("1.10")
+        │
+        ▼  Python appelle __lt__
+   self._cmp(other)
+        │
+        ▼  tuples (1, 9) vs (1, 10)
+       -1  →  -1 < 0  →  True
+```
+
+---
+
+## À retenir
+
+- `_cmp` = **comparaison unique** (renvoie `-1`, `0` ou `1`) ;
+- `__eq__` / `__lt__` / `__le__` / `__gt__` / `__ge__` = **adaptateurs** vers les opérateurs Python 3 ;
+- sans ces méthodes, `>=` et les autres opérateurs ne fonctionneraient pas sur `LooseVersion` ;
+- le but pédagogique ici : faire marcher l'import PySpark ML sous Python 3.12.
+
+En une phrase : **ces cinq méthodes traduisent le résultat de `_cmp` pour que Python puisse écrire `==`, `<`, `<=`, `>` et `>=` sur les versions.**

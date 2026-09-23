@@ -1,4 +1,4 @@
-# Rapport — Spark ClimaCity Paris (Sessions 1–5)
+# Rapport — Spark ClimaCity Paris (Sessions 1–6)
 
 Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
@@ -9,12 +9,13 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_3.ipynb`](../notebooks/Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
 | [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
 | [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) | MLlib, compatibilité Python | [§51–§52](#session-5--mllib-et-compatibilité-python) |
+| [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) | Optimisation, Catalyst | [§53–§54](#session-6--optimisation-et-catalyst) |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
 **QCM (Sessions 1–4) :** [`qcm-etudiants.md`](qcm-etudiants.md) (sans corrigé) · [`qcm-test.md`](qcm-test.md) (formateur) — [notes §40–§47](#annexes--notes-qcm-sessions-14) · [Python §48–§50](#annexes--python-rappels)
 
-**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [Session 5](#session-5--mllib-et-compatibilité-python) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
+**Accès rapide :** [Session 1](#session-1--api-rdd) · [Session 2](#session-2--dataframe--parquet) · [Session 3 SQL](#session-3--spark-sql-bases) · [Session 3 fenêtres](#session-3--fenêtres-analytiques-spark-sql) · [Session 3 Delta](#session-3--delta-lake-écriture-merge-time-travel) · [Session 4](#session-4--structured-streaming) · [Session 5](#session-5--mllib-et-compatibilité-python) · [Session 6](#session-6--optimisation-et-catalyst) · [QCM](#annexes--notes-qcm-sessions-14) · [Python](#annexes--python-rappels) · [Parcours pipeline](#parcours-du-pipeline-liens-entre-sections)
 
 ## Sommaire
 
@@ -93,6 +94,13 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 51. [Comparateurs Python (`__eq__`, `__lt__`, …) et `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge)
 52. [Méthode du coude (WSSSE) et `k=4` types de stations](#52-méthode-du-coude-wssse-et-k4-types-de-stations)
+
+<a id="session-6--optimisation-et-catalyst"></a>
+
+### Session 6 — Optimisation et Catalyst
+
+53. [`HashAggregate` vs `SortAggregate` — pourquoi le hash de `station_id`](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id)
+54. [Salting — ajouter et supprimer le sel (`N_SEL = 10`)](#54-salting--ajouter-et-supprimer-le-sel-n_sel--10)
 
 <a id="annexes--notes-qcm-sessions-14"></a>
 
@@ -195,6 +203,13 @@ reduceByKey / sortBy / take               →  top 10 [9]
 |---|---|
 | Section 0 — filet `LooseVersion` (Python 3.12) | [§51 Comparateurs `__eq__` / `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge) |
 | §1.4 K-Means — méthode du coude, `K_RETENU = 4` | [§52 Coude WSSSE et 4 types de stations](#52-méthode-du-coude-wssse-et-k4-types-de-stations) |
+
+### Session 6 — Optimisation et Catalyst
+
+| Étape notebook | Section rapport |
+|---|---|
+| §2.1 `explain` — HashAggregate vs SortAggregate | [§53 HashAggregate et hash de `station_id`](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id) · [§11 `explain`](#11-plan-dexécution--dfexplainmodeformatted) |
+| §2.2 Data skew — salting (`N_SEL = 10`) | [§54 Salting : ajouter / supprimer le sel](#54-salting--ajouter-et-supprimer-le-sel-n_sel--10) |
 
 ---
 
@@ -5894,3 +5909,270 @@ Deux usages, clairement posés dans la Session 5 :
 - utile pour la **carte** et comme **feature** du modèle de régression.
 
 En une phrase : **la méthode du coude choisit `k` ; `k=4`, c'est « 4 types de stations Vélib' » — assez pour piloter le réseau et le modèle, pas assez pour se noyer dans le détail.**
+
+---
+
+<a id="53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id"></a>
+
+# 53. `HashAggregate` vs `SortAggregate` — pourquoi le hash de `station_id`
+
+> Notebook : [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) — §2.1 Anatomie d'un plan d'exécution (`explain`)  
+> Voir aussi : [§11 Plan d'exécution `explain`](#11-plan-dexécution--dfexplainmodeformatted)
+
+## Question
+
+Dans le commentaire du plan physique Session 6 :
+
+```text
+L'agrégation utilise HashAggregate (plus rapide que SortAggregate)
+```
+
+Pourquoi Catalyst choisit **HashAggregate** ? Et pourquoi `hash(101)` est le même pour deux lignes de la station 101 avec des taux différents ?
+
+---
+
+## Réponse
+
+Dans votre requête Session 6, après les filtres, Spark doit faire :
+
+`groupBy("station_id")` + `avg(taux_occupation)`
+
+Ça veut dire : pour **chaque** `station_id`, accumuler une somme et un compteur, puis calculer la moyenne. Catalyst choisit **comment** faire cette accumulation. Deux stratégies possibles : **HashAggregate** ou **SortAggregate**.
+
+---
+
+## 1. HashAggregate (ce que Spark choisit ici)
+
+On utilise une **table de hachage** en mémoire : clé = `station_id`, valeur = (somme, compteur).
+
+```
+ligne (station 101, taux 0.10)  →  hash(101)  →  case 101 : somme += 0.10, n += 1
+ligne (station 205, taux 0.40)  →  hash(205)  →  case 205 : …
+ligne (station 101, taux 0.20)  →  hash(101)  →  case 101 : somme += 0.20, n += 1
+```
+
+Pas besoin de **trier** les lignes. On saute directement dans la bonne case. À la fin : `taux_pointe = somme / n`.
+
+C'est rapide parce que :
+
+- accès **O(1)** par clé (hash) ;
+- on peut agréger **au fil de l'eau**, dès qu'une ligne arrive ;
+- souvent un **pre-agrégat local** sur chaque partition (moins de données à shuffler).
+
+---
+
+## 2. SortAggregate (l'alternative plus lente)
+
+On **trie** d'abord tout par `station_id`, puis on parcourt dans l'ordre et on agrège les blocs consécutifs.
+
+```
+trier :  101, 101, 101, 205, 205, 312, …
+          └─── moyenne 101 ──┘  └── moyenne 205 ──┘
+```
+
+Le tri coûte cher : comparer, déplacer des lignes, parfois **spill** sur disque si ça ne tient pas en mémoire. On ne commence vraiment à agréger qu'**après** (ou pendant) ce tri.
+
+---
+
+## 3. Pourquoi Hash est plus rapide ici
+
+Pour Vélib', il y a quelques **centaines** de `station_id` distincts, et des **millions** de snapshots. La table de hash est petite (une entrée par station). Trier des millions de lignes juste pour grouper, c'est du gaspillage.
+
+| | HashAggregate | SortAggregate |
+|---|---|---|
+| Idée | dictionnaire `station_id → (somme, n)` | trier, puis agréger les paquets |
+| Coût principal | mémoire de la table de hash | **tri** (CPU + I/O) |
+| Idéal quand | peu de clés distinctes | beaucoup de clés, ou hash trop gros pour la RAM |
+| Votre cas | ~665 stations → **hash** | rarement choisi ici |
+
+Spark bascule vers SortAggregate surtout si la table de hash **explose** (trop de clés distinctes, trop de colonnes agrégées) et ne tient plus en mémoire.
+
+---
+
+## 4. Lien avec Catalyst
+
+Vous avez écrit `groupBy` + `avg`. Vous n'avez pas choisi l'algo. **Catalyst** regarde les stats / le type d'agrégation et met **HashAggregate** dans le plan physique (`explain(mode="formatted")`). C'est une des réécritures mentionnées dans le commentaire.
+
+---
+
+## 5. Pourquoi le hash est le même : `hash(101)` pour 0.10 et 0.20
+
+Parce qu'on ne hashe **pas la ligne entière**. On hashe seulement la **clé du `groupBy`**, ici `station_id`.
+
+Les deux lignes ont le même identifiant :
+
+- `(station 101, taux 0.10)` → clé = `101` → `hash(101)`
+- `(station 101, taux 0.20)` → clé = `101` → `hash(101)`
+
+`0.10` et `0.20` sont des **valeurs à agréger**, pas des clés. Elles vont dans la **case** déjà ouverte pour 101 : on ajoute à la somme, on incrémente le compteur.
+
+```
+hash(101)  →  case 101 :  somme = 0.10 , n = 1
+hash(101)  →  case 101 :  somme = 0.30 , n = 2
+                          taux_pointe = 0.30 / 2 = 0.15
+```
+
+Si on hashait aussi le taux, `hash(101, 0.10)` et `hash(101, 0.20)` iraient dans **deux cases différentes**. On n'aurait plus une moyenne **par station**, mais une case par couple (station, taux) — ça casserait le `groupBy("station_id")`.
+
+Analogie : le hash, c'est le **numéro de casier**. Toutes les observations de la station 101 doivent tomber dans **le même casier**, pour qu'on puisse les additionner. Le taux, c'est ce qu'on **met dans** le casier, pas le numéro du casier.
+
+---
+
+## Schéma mental
+
+```
+groupBy(station_id) + avg(taux)
+            │
+            ▼  Catalyst choisit HashAggregate
+   table de hash en mémoire
+            │
+   clé hashée = station_id seulement
+            │
+   101, 0.10 ─┐
+   101, 0.20 ─┼─→  même case 101  →  moyenne
+   205, 0.40 ─┘─→  case 205
+```
+
+---
+
+## À retenir
+
+- **HashAggregate** = dictionnaire en mémoire (pas de tri) ;
+- **SortAggregate** = trier d'abord, plus lent ici ;
+- on hashe la **clé** (`station_id`), pas le taux ;
+- deux lignes de la station 101 → **le même hash**, donc la même case.
+
+En une phrase : **HashAggregate accumule les moyennes dans un dictionnaire dont le numéro de case est `hash(station_id)` ; le taux change, le casier ne change pas.**
+
+---
+
+<a id="54-salting--ajouter-et-supprimer-le-sel-n_sel--10"></a>
+
+# 54. Salting — ajouter et supprimer le sel (`N_SEL = 10`)
+
+> Notebook : [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) — §2.2 Identifier et corriger un data skew  
+> Voir aussi : [§53 HashAggregate](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id) · [§2 Partitions](#2-partitions-rdd-vs-sparksqlshufflepartitions)
+
+## Question
+
+Que veulent dire **ajouter** et **supprimer le sel** dans :
+
+```python
+# ── Technique 1 : salting (ajout d'un sel aléatoire) ─────────────────────────
+# On divise la clé dominante en N sous-groupes, on agrège partiellement,
+# puis on supprime le sel et on agrège globalement.
+N_SEL = 10
+```
+
+---
+
+## Réponse
+
+**Ajouter / supprimer le sel**, c'est un truc pour casser une clé trop lourde, pas un assaisonnement des données métier.
+
+Le sel ne veut rien dire pour Vélib'. C'est un **répartiteur artificiel** : on découpe temporairement la clé dominante, on agrège en parallèle, puis on recolle.
+
+---
+
+## 1. Le problème (sans sel)
+
+Dans la simulation Session 6, la **station 0** a 900 000 lignes, les autres se partagent 100 000.
+
+Au `groupBy("station_id")`, Spark envoie **toutes** les lignes d'une même station vers **la même** tâche (même idée que `hash(station_id)`, [§53](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id)). Une tâche se tape 90 % du travail, les autres finissent tout de suite. C'est le **data skew**.
+
+```
+station 0  ████████████████████  900 000  →  1 tâche saturée
+station 1  █                       ~1 000
+station 2  █                       ~1 000
+```
+
+**Symptôme Spark UI** : un stage dont la durée est dominée par 1 ou 2 tâches, alors que les autres finissent en quelques secondes.
+
+---
+
+## 2. Ajouter le sel (`N_SEL = 10`)
+
+On fabrique une **fausse clé** : `station_id` + un entier aléatoire entre 0 et 9.
+
+```
+station 0, ligne A  →  "0_3"
+station 0, ligne B  →  "0_7"
+station 0, ligne C  →  "0_3"
+station 1, ligne D  →  "1_2"
+```
+
+La station 0 n'est plus **une** clé. Elle devient **10 sous-groupes** (`0_0` … `0_9`), chacun ~90 000 lignes. Spark peut les agréger **en parallèle** sur 10 tâches.
+
+---
+
+## 3. Agrégation partielle (avec le sel)
+
+On fait un `groupBy("cle_salee", "station_id")` : moyenne et compte **par sous-groupe**.
+
+Exemple pour la station 0 :
+
+| Clé salée | Moyenne partielle | n |
+|---|---|---|
+| `0_0` | 0.51 | 90 000 |
+| `0_1` | 0.49 | 89 000 |
+| … | … | … |
+| `0_9` | 0.50 | 91 000 |
+
+On a 10 petites moyennes, pas encore **la** moyenne de la station 0.
+
+---
+
+## 4. Supprimer le sel
+
+On **oublie** `cle_salee` et on regroupe à nouveau par `station_id` seul.
+
+Les 10 morceaux de la station 0 se **réunissent**. Comme les sous-groupes n'ont pas exactement le même effectif, on fait une **moyenne pondérée** :
+
+`(somme des moy_partielles × n_partielles) / (somme des n)`
+
+Résultat : la même moyenne que le `groupBy` naïf, mais calculée en deux temps, sans une seule tâche monstrueuse.
+
+```
+ajouter le sel     →  0 devient 0_0 … 0_9   (travail découpé)
+agréger            →  10 moyennes partielles
+supprimer le sel   →  groupBy(station_id)     (on recolle)
+```
+
+---
+
+## 5. Pourquoi `N_SEL = 10`
+
+C'est le nombre de **tranches**. Plus il est grand, plus on étale la clé dominante ; trop grand, on multiplie les petits `groupBy` pour rien. 10 est un compromis pédagogique.
+
+Les stations peu fréquentes (1, 2, 3…) sont aussi salées, mais ça ne change presque rien : elles étaient déjà petites.
+
+---
+
+## Schéma mental
+
+```
+900 000 lignes de la station 0
+            │
+            ▼  + sel (0..9)
+   0_0  0_1  …  0_9     (~90 000 chacune, en parallèle)
+            │
+            ▼  agrégation partielle
+   10 (moyenne, n)
+            │
+            ▼  on retire le sel
+   groupBy(station_id)
+            │
+            ▼
+   1 moyenne finale pour la station 0
+```
+
+---
+
+## À retenir
+
+- **skew** = une clé (ici station 0) monopolise une tâche après le shuffle ;
+- **ajouter le sel** = découper cette clé en `N_SEL` sous-groupes ;
+- **supprimer le sel** = recoller avec une moyenne pondérée sur `station_id` ;
+- le résultat métier est le **même** qu'un `groupBy` naïf, le travail est juste mieux réparti.
+
+En une phrase : **ajouter le sel découpe la station 0 en 10 clés pour paralléliser ; supprimer le sel recolle ces 10 morceaux pour retrouver une moyenne par station.**

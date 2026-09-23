@@ -9,7 +9,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_3.ipynb`](../notebooks/Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
 | [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
 | [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) | MLlib, compatibilité Python | [§51–§52](#session-5--mllib-et-compatibilité-python) |
-| [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) | Optimisation, Catalyst | [§53–§54](#session-6--optimisation-et-catalyst) |
+| [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) | Optimisation, Catalyst | [§53–§55](#session-6--optimisation-et-catalyst) |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -101,6 +101,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 
 53. [`HashAggregate` vs `SortAggregate` — pourquoi le hash de `station_id`](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id)
 54. [Salting — ajouter et supprimer le sel (`N_SEL = 10`)](#54-salting--ajouter-et-supprimer-le-sel-n_sel--10)
+55. [Spark UI — SQL/DataFrame, `Exchange` et tâche `1093`](#55-spark-ui--sqldataframe-exchange-et-tâche-1093)
 
 <a id="annexes--notes-qcm-sessions-14"></a>
 
@@ -210,6 +211,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 |---|---|
 | §2.1 `explain` — HashAggregate vs SortAggregate | [§53 HashAggregate et hash de `station_id`](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id) · [§11 `explain`](#11-plan-dexécution--dfexplainmodeformatted) |
 | §2.2 Data skew — salting (`N_SEL = 10`) | [§54 Salting : ajouter / supprimer le sel](#54-salting--ajouter-et-supprimer-le-sel-n_sel--10) |
+| §2.4 Spark UI — SQL/DataFrame, Exchange | [§55 Spark UI : SQL, Exchange, tâche 1093](#55-spark-ui--sqldataframe-exchange-et-tâche-1093) |
 
 ---
 
@@ -6176,3 +6178,146 @@ Les stations peu fréquentes (1, 2, 3…) sont aussi salées, mais ça ne change
 - le résultat métier est le **même** qu'un `groupBy` naïf, le travail est juste mieux réparti.
 
 En une phrase : **ajouter le sel découpe la station 0 en 10 clés pour paralléliser ; supprimer le sel recolle ces 10 morceaux pour retrouver une moyenne par station.**
+
+---
+
+<a id="55-spark-ui--sqldataframe-exchange-et-tâche-1093"></a>
+
+# 55. Spark UI — SQL/DataFrame, `Exchange` et tâche `1093`
+
+> Notebook : [`Spark_DIA3_Session_6.ipynb`](../notebooks/Spark_DIA3_Session_6.ipynb) — §2.4 Lecture avancée du Spark UI  
+> Voir aussi : [§53 HashAggregate / Exchange](#53-hashaggregate-vs-sortaggregate--pourquoi-le-hash-de-station_id) · [§10 Java / Spark UI](#10-mac-apple-silicon--java-arm64-et-warning-psutil)
+
+## Question
+
+La cellule dit :
+
+```text
+Allez maintenant dans Spark UI -> SQL/DataFrame -> dernière entrée.
+Identifiez : le nombre d'Exchange (shuffle), l'opération la plus coûteuse.
+```
+
+Comment y arriver ? Que faire si on ne voit que *Spark Jobs / Event Timeline* ?  
+Et que signifie une ligne du type `1093  SUCCESS  driver  7.0 ms  192 B / 2` ?
+
+---
+
+## Réponse
+
+C'est un **exercice d'observation**, pas une ligne de code. On regarde le job lancé par `df_analyse.count()`.
+
+Les captures ci-dessous sont prises sur **`http://localhost:4041`** (le 4040 était déjà pris). Le menu **SQL / DataFrame** est dans la barre de gauche.
+
+---
+
+## 1. Ouvrir la bonne Spark UI
+
+Dans un navigateur : [http://localhost:4040](http://localhost:4040)
+
+Si la page est presque vide (*User, Uptime, FIFO, Event Timeline* sans jobs), tu n'es **pas** sur la session du notebook. Spark a souvent basculé sur **4041** ou **4042**. Relis le print de la Section 0 :
+
+`Spark 3.5.x — Delta Lake activé — http://localhost:40xx`
+
+Ouvre **exactement** cette URL. La session Spark doit encore tourner (pas de `spark.stop()`).
+
+---
+
+## 2. Cliquer SQL / DataFrame (pas Jobs)
+
+Tu commences souvent sur **Jobs**. L'exercice est dans **SQL / DataFrame**.
+
+![Menu Spark UI : onglet SQL / DataFrame](../images/spark_sql_1.png)
+
+*Figure 1 — Barre latérale Spark 3.5. Sur cette capture, **SQL / DataFrame** est l'entrée active (`http://localhost:4041/SQL/`). Au-dessus : Jobs, Stages, Storage, Environment, Executors.*
+
+---
+
+## 3. Dernière entrée = première ligne du tableau
+
+Après le clic, tu vois **Completed Queries**.
+
+![Liste Completed Queries, requête ID 74](../images/spark_sql_3.png)
+
+*Figure 2 — Tableau des requêtes. La **dernière entrée** est la **première ligne** (la plus récente). Ici l'ID **74**, description `showString` — un `.show()`. Pour la cellule `df_analyse.count()`, cherche plutôt une ligne `count`.*
+
+Clique l'**ID** ou **+details**.
+
+---
+
+## 4. Compter les `Exchange` et l'opération la plus coûteuse
+
+Tu arrives sur **Details for Query …** : durée, jobs associés, et le **plan** (boîtes).
+
+![Détail d'une requête : Scan parquet](../images/spark_sql_2.png)
+
+*Figure 3 — Détail de la requête 74 (94 ms). On voit déjà un nœud **Scan parquet**. En descendant / en élargissant le graphe, cherche les boîtes **Exchange** (shuffle) et celle avec le plus gros temps.*
+
+Chaque **`Exchange`** = un **shuffle** (redistribution entre partitions).
+
+Sur le job `df_analyse` (groupBy + jointure `taux_global` + `orderBy`) :
+
+| Étape du code | Shuffle ? |
+|---|---|
+| `groupBy(station_id, annee, mois, heure)` | 1 `Exchange` |
+| jointure avec `taux_global` | souvent 1 `Exchange` |
+| `orderBy(ecart_global)` | 1 `Exchange` (tri) |
+
+**Réponse attendue** : souvent **2 ou 3** boîtes `Exchange`.
+
+L'opération la plus coûteuse = la boîte avec le **plus long Duration** : en pratique un **`Exchange`** ou le **`HashAggregate`** du `groupBy`.
+
+---
+
+## 5. Si tu vois seulement `1093  SUCCESS  7.0 ms  192 B`
+
+Tu n'es **pas** sur SQL. Tu es dans le détail d'un **stage** : **une tâche**.
+
+```
+SQL / DataFrame     ← plans, boîtes Exchange   (l'exercice)
+     ↑
+Jobs
+     ↑
+Stages
+     ↑
+Tasks               ← ligne 1093
+```
+
+| Valeur | Sens |
+|---|---|
+| `1093` | numéro de la **tâche** (la 1094ᵉ) |
+| `SUCCESS` | elle a réussi |
+| `driver` / `macbook-pro8.home` | mode `local[*]`, sur ton Mac |
+| `7.0 ms` | **très rapide** |
+| `192 B / 2` | presque rien écrit (192 octets, 2 records) |
+
+Ce n'est **pas** l'opération la plus coûteuse. Remonte vers **SQL / DataFrame** (figure 1).
+
+Si tu restes sur **Stages** : compare Duration min / max de **toutes** les tâches. Une à 10 s et les autres à 7 ms → **skew** ([§54](#54-salting--ajouter-et-supprimer-le-sel-n_sel--10)). Ce n'est pas la question « nombre d'Exchange ».
+
+---
+
+## Schéma mental
+
+```
+localhost:4041  (ou 4040 / 4042 — celui du print Section 0)
+        │
+        ▼  menu (fig. 1)
+  SQL / DataFrame
+        │
+        ▼  tableau (fig. 2)
+  dernière requête (1ʳᵉ ligne)
+        │
+        ▼  détail (fig. 3)
+  compter Exchange + plus gros temps
+```
+
+---
+
+## À retenir
+
+- **Jobs** = liste des jobs ; **SQL** = plan Catalyst (Exchange, HashAggregate, Scan) ;
+- **Tasks** (`1093`, 7 ms) = une miette de travail, pas le plan ;
+- vérifier le **port** (4040 vs 4041) si la page est vide ;
+- `Exchange` = shuffle ; le plus coûteux = plus gros Duration.
+
+En une phrase : **ouvre le port du notebook, clique SQL / DataFrame, puis la dernière requête : compte les Exchange et lis le temps de chaque boîte.**

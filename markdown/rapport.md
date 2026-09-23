@@ -8,7 +8,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 | [`Spark_DIA3_Session_2.ipynb`](../notebooks/Spark_DIA3_Session_2.ipynb) | DataFrame, Parquet | [§11–§12](#session-2--dataframe--parquet) |
 | [`Spark_DIA3_Session_3.ipynb`](../notebooks/Spark_DIA3_Session_3.ipynb) | Spark SQL, fenêtres, Delta Lake | [§13–§33](#session-3--spark-sql-bases) · [§39 ACID](#session-3--delta-lake-écriture-merge-time-travel) |
 | [`Spark_DIA3_Session_4.ipynb`](../notebooks/Spark_DIA3_Session_4.ipynb) | Structured Streaming | [§34–§38](#session-4--structured-streaming) |
-| [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) | MLlib, compatibilité Python | [§51](#session-5--mllib-et-compatibilité-python) |
+| [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) | MLlib, compatibilité Python | [§51–§52](#session-5--mllib-et-compatibilité-python) |
 
 **Référence complémentaire :** [`MEM-02SPARK_Window-Functions.md`](MEM-02SPARK_Window-Functions.md) — catalogue et syntaxe SQL des fonctions de fenêtrage (`OVER`, `WINDOW w`, `LAG`, `ROW_NUMBER`, etc.).
 
@@ -92,6 +92,7 @@ Notes et explications des notebooks Spark du projet ClimaCity Paris.
 ### Session 5 — MLlib (compatibilité Python)
 
 51. [Comparateurs Python (`__eq__`, `__lt__`, …) et `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge)
+52. [Méthode du coude (WSSSE) et `k=4` types de stations](#52-méthode-du-coude-wssse-et-k4-types-de-stations)
 
 <a id="annexes--notes-qcm-sessions-14"></a>
 
@@ -193,6 +194,7 @@ reduceByKey / sortBy / take               →  top 10 [9]
 | Étape notebook | Section rapport |
 |---|---|
 | Section 0 — filet `LooseVersion` (Python 3.12) | [§51 Comparateurs `__eq__` / `_cmp`](#51-comparateurs-python-eq-lt-le-gt-ge) |
+| §1.4 K-Means — méthode du coude, `K_RETENU = 4` | [§52 Coude WSSSE et 4 types de stations](#52-méthode-du-coude-wssse-et-k4-types-de-stations) |
 
 ---
 
@@ -5742,3 +5744,153 @@ LooseVersion("1.9")  <  LooseVersion("1.10")
 - le but pédagogique ici : faire marcher l'import PySpark ML sous Python 3.12.
 
 En une phrase : **ces cinq méthodes traduisent le résultat de `_cmp` pour que Python puisse écrire `==`, `<`, `<=`, `>` et `>=` sur les versions.**
+
+---
+
+<a id="52-méthode-du-coude-wssse-et-k4-types-de-stations"></a>
+
+# 52. Méthode du coude (WSSSE) et `k=4` types de stations
+
+> Notebook : [`Spark_DIA3_Session_5.ipynb`](../notebooks/Spark_DIA3_Session_5.ipynb) — §1.4 Clustering des stations (K-Means)  
+> Voir aussi : [§51 Comparateurs Python](#51-comparateurs-python-eq-lt-le-gt-ge)
+
+## Question
+
+Que signifie ce commentaire, et concrètement **pourquoi le notebook retient `k=4`** ?
+
+```python
+# ── Méthode du coude : inertie (WSSSE) en fonction de k ──────────────────────
+# On entraîne un K-Means pour k = 2..8 et on trace l'inertie.
+# Le "coude" dans la courbe indique le bon compromis.
+```
+
+---
+
+## Réponse
+
+Ces lignes n'entraînent rien : elles expliquent **pourquoi** on lance plusieurs K-Means au lieu d'en choisir un au hasard.
+
+K-Means a besoin d'un nombre de groupes `k` **à l'avance**. Ici, on veut grouper les stations Vélib' selon leur **profil horaire** (`h00`…`h23`). Rien ne dit si 3, 4 ou 7 groupes sont pertinents.
+
+La **méthode du coude** sert à choisir `k`. Le notebook retient ensuite **`K_RETENU = 4`** : assez de clusters pour coller aux données, pas trop pour rester interprétable.
+
+---
+
+## 1. Ce que fait la méthode du coude
+
+On entraîne un K-Means pour **chaque** `k` de 2 à 8, et on note l'**inertie** (WSSSE : *Within Set Sum of Squared Errors*).
+
+L'inertie = somme des carrés des distances de chaque station à **son** centroïde. Plus elle est petite, plus les stations d'un même cluster se ressemblent.
+
+Dans un run typique du notebook :
+
+| k | inertie |
+|---|---|
+| 2 | 9 905 |
+| 3 | 8 391 |
+| 4 | 8 059 |
+| 5 | 7 452 |
+| … | continue de baisser |
+
+---
+
+## 2. Pourquoi l'inertie baisse toujours
+
+Ajouter un cluster **améliore forcément** l'inertie : chaque point peut se rapprocher d'un centre. Avec `k = nombre de stations`, l'inertie serait 0 (un cluster par station), ce qui n'a aucun intérêt.
+
+On ne cherche donc **pas** le `k` avec l'inertie minimale.
+
+On cherche le `k` où la courbe **casse** : avant, chaque cluster en plus fait beaucoup baisser l'inertie ; après, le gain devient faible.
+
+```
+inertie
+  │
+  │  ●
+  │    ╲
+  │     ●──●──●──●──●     ← après le coude, peu de gain
+  │        ↑
+  │      coude
+  └────────────── k
+```
+
+Sur les chiffres ci-dessus, le gros saut est entre **k=2 et k=3** (−1 500), puis ça s'aplatit. `k=4` est un compromis lisible.
+
+---
+
+## 3. Concrètement pour ClimaCity : que veut dire `k=4` ?
+
+**k=4** veut dire : on ne traite plus les 665 stations une par une. On les range dans **4 familles** qui ont à peu près le **même rythme de la journée**.
+
+Au lieu de dire « la station République ne ressemble à aucune autre », on dit :
+
+- cette station est du **type 0**,
+- celle-ci du **type 1**,
+- etc.
+
+Chaque type = un **profil horaire** : le taux d'occupation moyen de 0 h à 23 h. L'idée métier du notebook, c'est que le réseau n'est pas uniforme :
+
+- certaines stations se vident le matin (quartiers **résidentiels**, les gens partent travailler) ;
+- d'autres se vident le soir (quartiers **bureaux / gares**) ;
+- d'autres restent **stables** toute la journée ;
+- un petit groupe peut être **atypique** (très peu utilisées, mal renseignées, ou un usage très particulier).
+
+Dans un run du notebook :
+
+| Cluster | Stations | Lecture concrète |
+|---|---|---|
+| 0 | 204 | un premier « régime » d'occupation, assez plat |
+| 1 | ~293 | le groupe **le plus courant** (presque la moitié du réseau) |
+| 2 | 160 | occupation un peu plus haute |
+| 3 | **8** | un tout petit groupe à part (anomalie ou usage rare) |
+
+Les 8 du cluster 3, c'est exactement ce que « ne pas trop morceler » évite d'amplifier : avec `k=8`, on aurait plusieurs mini-groupes de 5–10 stations, illisibles pour un opérateur.
+
+---
+
+## 4. À quoi ça sert dans le projet
+
+Deux usages, clairement posés dans la Session 5 :
+
+1. **Comprendre le réseau** — la carte Folium colore les stations par cluster. On voit si un type est plutôt centre, périphérie, près des gares, etc. Utile pour imaginer le **rééquilibrage** : on ne gère pas une station résidentielle comme une station de bureau.
+
+2. **Aider la prédiction** — le numéro de cluster (0, 1, 2 ou 3) devient une **feature** du modèle GBT. Le modèle n'apprend pas seulement « il est 8 h et il pleut », il apprend aussi « cette station est du type 2 ». Deux stations à la même heure peuvent donc avoir des prévisions différentes.
+
+---
+
+## 5. Pourquoi 4, pas 2 ni 8
+
+| Choix | Effet sur le projet |
+|---|---|
+| `k=2` | trop gros : on colle ensemble des stations qui ne se vident pas aux mêmes heures ; la carte et le modèle perdent l'info utile |
+| `k=8` | trop fin : 8 types, dur à expliquer, certains groupes n'ont presque plus de stations ; inutile pour décider où envoyer une camionnette |
+| `k=4` | assez pour distinguer les grands comportements, assez simple pour en parler et s'en servir comme feature |
+
+---
+
+## Schéma mental
+
+```
+665 stations  →  profil 24 h (h00…h23)
+                      │
+                      ▼  K-Means, k = 2..8
+              courbe d'inertie (WSSSE)
+                      │
+                      ▼  coude
+              K_RETENU = 4 types
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+     carte Folium   feature GBT   lecture métier
+     (géographie)   (prédiction)  (rééquilibrage)
+```
+
+---
+
+## À retenir
+
+- l'inertie (WSSSE) **baisse toujours** quand `k` augmente : ce n'est pas un score à minimiser à tout prix ;
+- le **coude** = le `k` où le gain devient faible ;
+- **`k=4`** = 4 types de stations Vélib', pas 665 comportements isolés ;
+- utile pour la **carte** et comme **feature** du modèle de régression.
+
+En une phrase : **la méthode du coude choisit `k` ; `k=4`, c'est « 4 types de stations Vélib' » — assez pour piloter le réseau et le modèle, pas assez pour se noyer dans le détail.**
